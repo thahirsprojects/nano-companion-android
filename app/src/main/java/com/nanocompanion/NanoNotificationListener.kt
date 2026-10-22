@@ -1,4 +1,3 @@
-
 package com.nanocompanion
 
 import android.content.BroadcastReceiver
@@ -24,7 +23,7 @@ class NanoNotificationListener : NotificationListenerService() {
         const val ACTION_MEDIA_COMMAND =
             "com.nanocompanion.ACTION_MEDIA_COMMAND"
 
-        private const val EXTRA_MEDIA_COMMAND = "command"
+        const val EXTRA_MEDIA_COMMAND = "command"
     }
 
     private var mediaSessionManager: MediaSessionManager? = null
@@ -101,11 +100,7 @@ class NanoNotificationListener : NotificationListenerService() {
 
             Log.i(TAG, "Media session monitoring started")
         } catch (e: SecurityException) {
-            Log.e(
-                TAG,
-                "Enable Nano in Android notification access settings",
-                e
-            )
+            Log.e(TAG, "Enable Nano notification access in Android settings", e)
         } catch (e: Exception) {
             Log.e(TAG, "Unable to initialize media sessions", e)
         }
@@ -231,7 +226,6 @@ class NanoNotificationListener : NotificationListenerService() {
 
         val metadata = controller.metadata
 
-        // Use MediaMetadata constants, not MediaController.MetadataEditor.
         val title = metadata
             ?.getString(MediaMetadata.METADATA_KEY_TITLE)
             .orEmpty()
@@ -310,7 +304,6 @@ class NanoNotificationListener : NotificationListenerService() {
                 }
 
                 "PLAY" -> controls.play()
-
                 "PAUSE" -> controls.pause()
 
                 else -> Log.w(TAG, "Unknown media command: $command")
