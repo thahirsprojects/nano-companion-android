@@ -1,8 +1,7 @@
-
 package com.nanocompanion
 
 import android.Manifest
-import android.app.Notification
+import android.annotation.SuppressLint
 import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -31,10 +30,14 @@ class NanoBleService : Service() {
 
     companion object {
         private const val TAG = "NanoBleService"
+        private const val DEVICE_NAME = "Nano"
 
-        const val ACTION_CONNECT = "com.nanocompanion.CONNECT"
-        const val ACTION_DISCONNECT = "com.nanocompanion.DISCONNECT"
-        const val ACTION_SEND_COMMAND = "com.nanocompanion.SEND_COMMAND"
+        const val ACTION_CONNECT =
+            "com.nanocompanion.CONNECT"
+        const val ACTION_DISCONNECT =
+            "com.nanocompanion.DISCONNECT"
+        const val ACTION_SEND_COMMAND =
+            "com.nanocompanion.SEND_COMMAND"
         const val ACTION_FORWARD_NOTIFICATION =
             "com.nanocompanion.FORWARD_NOTIFICATION"
         const val ACTION_CONNECTION_STATE =
@@ -46,16 +49,17 @@ class NanoBleService : Service() {
         const val EXTRA_CONNECTED = "connected"
         const val EXTRA_MESSAGE = "message"
 
-        private const val DEVICE_NAME = "Nano"
+        private val SERVICE_UUID = UUID.fromString(
+            "7a1c0001-5e0d-4b8e-9f3a-2d6c1b4a0001"
+        )
 
-        private val SERVICE_UUID: UUID =
-            UUID.fromString("7a1c0001-5e0d-4b8e-9f3a-2d6c1b4a0001")
+        private val CHARACTERISTIC_UUID = UUID.fromString(
+            "7a1c0002-5e0d-4b8e-9f3a-2d6c1b4a0001"
+        )
 
-        private val CHARACTERISTIC_UUID: UUID =
-            UUID.fromString("7a1c0002-5e0d-4b8e-9f3a-2d6c1b4a0001")
-
-        private val CCCD_UUID: UUID =
-            UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private val CCCD_UUID = UUID.fromString(
+            "00002902-0000-1000-8000-00805f9b34fb"
+        )
     }
 
     private val writeQueue = ConcurrentLinkedQueue<String>()
@@ -70,19 +74,21 @@ class NanoBleService : Service() {
     private var scanning = false
 
     private var receiverRegistered = false
+    private var writeInProgress = false
+    private var notificationsEnabled = false
 
     private val commandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 ACTION_CONNECT -> connectToNano()
+
                 ACTION_DISCONNECT -> disconnectFromNano()
 
                 ACTION_SEND_COMMAND,
                 ACTION_FORWARD_NOTIFICATION -> {
-                    val command = intent.getStringExtra(EXTRA_COMMAND)
-                        ?: return
-
-                    enqueueCommand(command)
+                    intent.getStringExtra(EXTRA_COMMAND)?.let {
+                        enqueueCommand(it)
+                    }
                 }
             }
         }
@@ -98,11 +104,11 @@ class NanoBleService : Service() {
             addAction(ACTION_FORWARD_NOTIFICATION)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(
                 commandReceiver,
                 filter,
-                RECEIVER_NOT_EXPORTED
+                Context.RECEIVER_NOT_EXPORTED
             )
         } else {
             @Suppress("DEPRECATION")
@@ -120,7 +126,9 @@ class NanoBleService : Service() {
     ): Int {
         when (intent?.action) {
             ACTION_CONNECT -> connectToNano()
+
             ACTION_DISCONNECT -> disconnectFromNano()
+
             ACTION_SEND_COMMAND,
             ACTION_FORWARD_NOTIFICATION -> {
                 intent.getStringExtra(EXTRA_COMMAND)?.let {
@@ -145,21 +153,24 @@ class NanoBleService : Service() {
         }
     }
 
-    @Suppress("MissingPermission")
+    private fun getBluetoothAdapter(): BluetoothAdapter? {
+        val manager = getSystemService(BLUETOOTH_SERVICE)
+            as BluetoothManager
+        return manager.adapter
+    }
+
+    @SuppressLint("MissingPermission")
     private fun connectToNano() {
         if (!hasBluetoothPermission()) {
-            Log.e(TAG, "Bluetooth permissions have not been granted")
+            Log.e(TAG, "Bluetooth permissions not granted")
             broadcastConnectionState(false)
             return
         }
 
-        val manager = getSystemService(BLUETOOTH_SERVICE)
-            as BluetoothManager
+        val adapter = getBluetoothAdapter()
 
-        val adapter: BluetoothAdapter = manager.adapter
-
-        if (!adapter.isEnabled) {
-            Log.e(TAG, "Bluetooth is disabled")
+        if (adapter == null || !adapter.isEnabled) {
+            Log.e(TAG, "Bluetooth unavailable or disabled")
             broadcastConnectionState(false)
             return
         }
@@ -174,7 +185,7 @@ class NanoBleService : Service() {
         val scanner = adapter.bluetoothLeScanner
 
         if (scanner == null) {
-            Log.e(TAG, "BLE scanner is unavailable")
+            Log.e(TAG, "BLE scanner unavailable")
             broadcastConnectionState(false)
             return
         }
@@ -188,7 +199,7 @@ class NanoBleService : Service() {
 
         try {
             scanner.startScan(null, settings, scanCallback)
-        } catch (e: SecurityException) {
+        } catch (e: Exception) {
             scanning = false
             Log.e(TAG, "Unable to start BLE scan", e)
             broadcastConnectionState(false)
@@ -205,14 +216,15 @@ class NanoBleService : Service() {
             if (!hasBluetoothPermission()) return
 
             val device = result.device
-            val advertisedName = result.scanRecord?.deviceName
-            val deviceName = advertisedName ?: try {
-                device.name
-            } catch (_: Exception) {
-                null
-            }
 
-            if (deviceName == DEVICE_NAME) {
+            val name = result.scanRecord?.deviceName
+                ?: try {
+                    device.name
+                } catch (_: Exception) {
+                    null
+                }
+
+            if (name == DEVICE_NAME) {
                 Log.i(TAG, "Found Nano: ${device.address}")
                 stopScan()
                 connectGatt(device)
@@ -226,24 +238,22 @@ class NanoBleService : Service() {
         }
     }
 
-    @Suppress("MissingPermission")
+    @SuppressLint("MissingPermission")
     private fun stopScan() {
-        if (!hasBluetoothPermission()) return
-
         try {
-            val manager = getSystemService(BLUETOOTH_SERVICE)
-                as BluetoothManager
-
-            manager.adapter.bluetoothLeScanner
-                ?.stopScan(scanCallback)
+            if (hasBluetoothPermission()) {
+                getBluetoothAdapter()
+                    ?.bluetoothLeScanner
+                    ?.stopScan(scanCallback)
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "Unable to stop BLE scan", e)
+            Log.w(TAG, "Unable to stop scan", e)
+        } finally {
+            scanning = false
         }
-
-        scanning = false
     }
 
-    @Suppress("MissingPermission")
+    @SuppressLint("MissingPermission")
     private fun connectGatt(device: BluetoothDevice) {
         if (!hasBluetoothPermission()) return
 
@@ -257,14 +267,10 @@ class NanoBleService : Service() {
                     BluetoothDevice.TRANSPORT_LE
                 )
             } else {
-                device.connectGatt(
-                    this,
-                    false,
-                    gattCallback
-                )
+                device.connectGatt(this, false, gattCallback)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to Nano", e)
+            Log.e(TAG, "Unable to connect to Nano", e)
             broadcastConnectionState(false)
         }
     }
@@ -281,6 +287,8 @@ class NanoBleService : Service() {
                 Log.e(TAG, "GATT connection error: $status")
                 connected = false
                 nanoCharacteristic = null
+                writeInProgress = false
+                notificationsEnabled = false
                 broadcastConnectionState(false)
 
                 try {
@@ -298,6 +306,8 @@ class NanoBleService : Service() {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connected = true
                     bluetoothGatt = gatt
+                    writeInProgress = false
+                    notificationsEnabled = false
 
                     Log.i(TAG, "Connected to Nano")
                     broadcastConnectionState(true)
@@ -310,6 +320,8 @@ class NanoBleService : Service() {
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     connected = false
                     nanoCharacteristic = null
+                    writeInProgress = false
+                    notificationsEnabled = false
 
                     writeQueue.clear()
                     broadcastConnectionState(false)
@@ -342,27 +354,25 @@ class NanoBleService : Service() {
                 service?.getCharacteristic(CHARACTERISTIC_UUID)
 
             if (characteristic == null) {
-                Log.e(TAG, "Nano characteristic was not found")
+                Log.e(TAG, "Nano characteristic not found")
                 return
             }
 
             nanoCharacteristic = characteristic
 
-            val supportsNotify =
+            val canNotify =
                 characteristic.properties and
                     BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
 
-            if (supportsNotify) {
+            if (canNotify) {
                 enableNotifications(gatt, characteristic)
             } else {
-                Log.w(
-                    TAG,
-                    "Characteristic does not support notifications"
-                )
+                notificationsEnabled = true
+                Log.w(TAG, "Characteristic does not support notifications")
+                pumpWrites()
             }
 
-            Log.i(TAG, "Nano BLE service ready")
-            pumpWrites()
+            Log.i(TAG, "Nano characteristic ready")
         }
 
         @Suppress("DEPRECATION")
@@ -389,9 +399,7 @@ class NanoBleService : Service() {
         ) {
             if (characteristic.uuid != CHARACTERISTIC_UUID) return
 
-            val message = value
-                .toString(Charsets.UTF_8)
-                .trim()
+            val message = value.toString(Charsets.UTF_8).trim()
 
             if (message.isNotBlank()) {
                 handleDeviceMessage(message)
@@ -403,21 +411,25 @@ class NanoBleService : Service() {
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
+            notificationsEnabled =
+                status == BluetoothGatt.GATT_SUCCESS
+
+            if (notificationsEnabled) {
                 Log.i(TAG, "BLE notifications enabled")
             } else {
-                Log.e(TAG, "Failed to enable notifications: $status")
+                Log.e(TAG, "Enabling BLE notifications failed: $status")
             }
 
             pumpWrites()
         }
 
-        @Suppress("DEPRECATION")
         override fun onCharacteristicWrite(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
+            writeInProgress = false
+
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "BLE write failed: $status")
             }
@@ -440,14 +452,14 @@ class NanoBleService : Service() {
             )
 
             if (!enabled) {
-                Log.e(TAG, "setCharacteristicNotification failed")
+                Log.e(TAG, "Unable to enable characteristic notifications")
                 return
             }
 
             val descriptor = characteristic.getDescriptor(CCCD_UUID)
 
             if (descriptor == null) {
-                Log.w(TAG, "Notification descriptor not found")
+                Log.e(TAG, "CCCD descriptor 2902 not found")
                 return
             }
 
@@ -466,17 +478,20 @@ class NanoBleService : Service() {
                     BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
 
                 @Suppress("DEPRECATION")
-                gatt.writeDescriptor(descriptor)
+                val accepted = gatt.writeDescriptor(descriptor)
+
+                if (!accepted) {
+                    Log.e(TAG, "Descriptor write was rejected")
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Unable to enable BLE notifications", e)
+            Log.e(TAG, "Unable to configure notifications", e)
         }
     }
 
     private fun handleDeviceMessage(message: String) {
-        Log.i(TAG, "Message from Nano: $message")
+        Log.i(TAG, "Received from Nano: $message")
 
-        // ESP32 sends C|NEXT, C|PREV or C|PLAYPAUSE.
         if (message.startsWith("C|")) {
             val command = message.substringAfter("C|").trim()
 
@@ -509,34 +524,39 @@ class NanoBleService : Service() {
     @SuppressLint("MissingPermission")
     private fun pumpWrites() {
         if (!connected || !hasBluetoothPermission()) return
+        if (writeInProgress) return
 
         val gatt = bluetoothGatt ?: return
         val characteristic = nanoCharacteristic ?: return
 
+        // Wait until notification subscription setup has completed.
+        if (!notificationsEnabled) return
+
         val command = writeQueue.peek() ?: return
+        val properties = characteristic.properties
+
+        val writeType = when {
+            properties and
+                BluetoothGattCharacteristic.PROPERTY_WRITE != 0 ->
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+
+            properties and
+                BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0 ->
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+
+            else -> {
+                Log.e(TAG, "Characteristic is not writable")
+                writeQueue.poll()
+                return
+            }
+        }
 
         try {
-            val properties = characteristic.properties
-
-            val writeType = when {
-                properties and
-                    BluetoothGattCharacteristic.PROPERTY_WRITE != 0 ->
-                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-
-                properties and
-                    BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0 ->
-                    BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-
-                else -> {
-                    Log.e(TAG, "Characteristic is not writable")
-                    writeQueue.poll()
-                    return
-                }
-            }
-
             val bytes = command.toByteArray(Charsets.UTF_8)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                writeInProgress = true
+
                 val result = gatt.writeCharacteristic(
                     characteristic,
                     bytes,
@@ -546,7 +566,8 @@ class NanoBleService : Service() {
                 if (result == BluetoothStatusCodes.SUCCESS) {
                     writeQueue.poll()
                 } else {
-                    Log.e(TAG, "Unable to queue BLE write: $result")
+                    writeInProgress = false
+                    Log.e(TAG, "BLE write rejected: $result")
                 }
             } else {
                 @Suppress("DEPRECATION")
@@ -555,16 +576,20 @@ class NanoBleService : Service() {
                 @Suppress("DEPRECATION")
                 characteristic.value = bytes
 
+                writeInProgress = true
+
                 @Suppress("DEPRECATION")
                 val accepted = gatt.writeCharacteristic(characteristic)
 
                 if (accepted) {
                     writeQueue.poll()
                 } else {
+                    writeInProgress = false
                     Log.e(TAG, "BLE write was rejected")
                 }
             }
         } catch (e: Exception) {
+            writeInProgress = false
             Log.e(TAG, "Error writing to Nano", e)
         }
     }
@@ -575,20 +600,24 @@ class NanoBleService : Service() {
 
         connected = false
         nanoCharacteristic = null
+        writeInProgress = false
+        notificationsEnabled = false
         writeQueue.clear()
 
+        val gatt = bluetoothGatt
+        bluetoothGatt = null
+
         try {
-            bluetoothGatt?.disconnect()
+            gatt?.disconnect()
         } catch (e: Exception) {
-            Log.w(TAG, "Disconnect failed", e)
+            Log.w(TAG, "GATT disconnect failed", e)
         }
 
         try {
-            bluetoothGatt?.close()
+            gatt?.close()
         } catch (_: Exception) {
         }
 
-        bluetoothGatt = null
         broadcastConnectionState(false)
     }
 
@@ -606,6 +635,7 @@ class NanoBleService : Service() {
                 unregisterReceiver(commandReceiver)
             } catch (_: Exception) {
             }
+            receiverRegistered = false
         }
 
         disconnectFromNano()
@@ -613,4 +643,4 @@ class NanoBleService : Service() {
 
         Log.i(TAG, "Nano BLE service destroyed")
     }
-} 
+}
