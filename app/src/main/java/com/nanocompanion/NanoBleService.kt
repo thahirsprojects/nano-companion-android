@@ -157,22 +157,73 @@ class NanoBleService : Service() {
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
-                connected = true
-                gatt = g
-                updateNotification("Connected to Nano • syncing time")
-                try { g.discoverServices() } catch (e: SecurityException) { Log.e(TAG, "discoverServices", e) }
-            } else {
-                connected = false
-                characteristic = null
-                writing = false
-                synchronized(writeQueue) { writeQueue.clear() }
-                try { g.close() } catch (_: Exception) {}
-                if (gatt == g) gatt = null
-                updateNotification("Nano disconnected • reconnecting")
-                if (shouldReconnect) scheduleRescan()
+        
+            
+            override fun onConnectionStateChange(
+                g: BluetoothGatt,
+                status: Int,
+                newState: Int
+            ) {
+                Log.i(
+                    TAG,
+                    "BLE connection callback: status=$status, newState=$newState"
+                )
+            
+                if (
+                    status == BluetoothGatt.GATT_SUCCESS &&
+                    newState == BluetoothProfile.STATE_CONNECTED
+                ) {
+                    connected = true
+                    gatt = g
+            
+                    updateNotification("Connected; discovering Nano services…")
+            
+                    try {
+                        val started = g.discoverServices()
+            
+                        Log.i(TAG, "Service discovery started: $started")
+            
+                        if (!started) {
+                            updateNotification("Service discovery failed; retrying")
+                            g.disconnect()
+                        }
+                    } catch (e: SecurityException) {
+                        Log.e(TAG, "Bluetooth permission missing during discovery", e)
+                        updateNotification("Bluetooth permission required")
+                        g.disconnect()
+                    }
+                } else {
+                    connected = false
+                    characteristic = null
+                    writing = false
+            
+                    synchronized(writeQueue) {
+                        writeQueue.clear()
+                    }
+            
+                    Log.e(
+                        TAG,
+                        "BLE connection failed/disconnected: status=$status, newState=$newState"
+                    )
+            
+                    try {
+                        g.close()
+                    } catch (_: Exception) {
+                        // Ignore errors while closing the connection.
+                    }
+            
+                    if (gatt == g) {
+                        gatt = null
+                    }
+            
+                    updateNotification("BLE error $status; retrying")
+            
+                    if (shouldReconnect) {
+                        scheduleRescan()
+                    }
+                }
             }
+
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
