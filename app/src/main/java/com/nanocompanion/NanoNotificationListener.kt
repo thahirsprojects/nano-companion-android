@@ -1,7 +1,7 @@
-
 package com.nanocompanion
 
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.media.session.MediaController
 import android.media.session.PlaybackState
@@ -26,18 +26,16 @@ class NanoNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-
         Log.i(TAG, "Notification listener connected")
-
         refreshMediaSession()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
 
-        // Refresh media information when Spotify posts a notification.
         if (sbn.packageName == SPOTIFY_PACKAGE) {
             refreshMediaSession()
+            return
         }
 
         val extras = sbn.notification.extras
@@ -83,6 +81,7 @@ class NanoNotificationListener : NotificationListenerService() {
 
         val safeApp = appName
             .replace("|", "/")
+            .replace("\r", " ")
             .replace("\n", " ")
             .take(40)
 
@@ -92,9 +91,7 @@ class NanoNotificationListener : NotificationListenerService() {
             .replace("\n", " ")
             .take(220)
 
-        val command = "N|$safeApp|$safeMessage"
-
-        sendToBleService(command)
+        sendToBleService("N|$safeApp|$safeMessage")
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
@@ -105,12 +102,6 @@ class NanoNotificationListener : NotificationListenerService() {
         }
     }
 
-    /**
-     * Retrieves active media sessions.
-     *
-     * getActiveSessions() may return null, so orEmpty()
-     * prevents the Kotlin nullable-list compilation error.
-     */
     private fun refreshMediaSession() {
         try {
             val component = ComponentName(
@@ -118,6 +109,8 @@ class NanoNotificationListener : NotificationListenerService() {
                 NanoNotificationListener::class.java
             )
 
+            // This API belongs to NotificationListenerService.
+            // orEmpty() safely handles a nullable session list.
             val controllers: List<MediaController> =
                 getActiveSessions(component).orEmpty()
 
@@ -132,50 +125,43 @@ class NanoNotificationListener : NotificationListenerService() {
             } else {
                 sendToBleService("M|||STOPPED")
             }
-
         } catch (e: SecurityException) {
-            Log.e(
-                TAG,
-                "Notification access is not enabled",
-                e
-            )
+            Log.e(TAG, "Notification access is not enabled", e)
         } catch (e: Exception) {
-            Log.e(TAG, "Unable to read media session", e)
+            Log.e(TAG, "Unable to retrieve media sessions", e)
         }
     }
 
-    /**
-     * Sends the current song title, artist, and playback state
-     * to the ESP32 through the existing BLE service.
-     */
     private fun sendMediaMetadata(controller: MediaController) {
         val metadata = controller.metadata
         val playbackState = controller.playbackState
 
         val title = metadata
-            ?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE)
+            ?.getString(
+                android.media.MediaMetadata.METADATA_KEY_TITLE
+            )
             .orEmpty()
             .replace("|", "/")
+            .replace("\r", " ")
             .replace("\n", " ")
             .take(60)
 
         val artist = (
             metadata?.getString(
                 android.media.MediaMetadata.METADATA_KEY_ARTIST
+            ) ?: metadata?.getString(
+                android.media.MediaMetadata.METADATA_KEY_ALBUM_ARTIST
             )
-                ?: metadata?.getString(
-                    android.media.MediaMetadata.METADATA_KEY_ALBUM_ARTIST
-                )
-            )
+        )
             .orEmpty()
             .replace("|", "/")
+            .replace("\r", " ")
             .replace("\n", " ")
             .take(40)
 
         val state = when (playbackState?.state) {
             PlaybackState.STATE_PLAYING -> "PLAYING"
-            PlaybackState.STATE_PAUSED,
-            PlaybackState.STATE_PAUSED_BUFFERING -> "PAUSED"
+            PlaybackState.STATE_PAUSED -> "PAUSED"
             PlaybackState.STATE_STOPPED,
             PlaybackState.STATE_NONE,
             PlaybackState.STATE_ERROR -> "STOPPED"
@@ -185,20 +171,18 @@ class NanoNotificationListener : NotificationListenerService() {
         sendToBleService("M|$title|$artist|$state")
     }
 
-    /**
-     * Receives playback commands from the BLE service.
-     * The service can broadcast NEXT, PREV, or PLAYPAUSE.
-     */
     override fun onCreate() {
         super.onCreate()
 
-        val filter = android.content.IntentFilter(ACTION_MEDIA_COMMAND)
+        val filter = android.content.IntentFilter(
+            ACTION_MEDIA_COMMAND
+        )
 
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             registerReceiver(
                 mediaCommandReceiver,
                 filter,
-                RECEIVER_NOT_EXPORTED
+                Context.RECEIVER_NOT_EXPORTED
             )
         } else {
             @Suppress("DEPRECATION")
@@ -210,7 +194,7 @@ class NanoNotificationListener : NotificationListenerService() {
         object : android.content.BroadcastReceiver() {
 
             override fun onReceive(
-                context: android.content.Context?,
+                context: Context?,
                 intent: Intent?
             ) {
                 val command = intent
@@ -218,16 +202,14 @@ class NanoNotificationListener : NotificationListenerService() {
                     ?.uppercase()
                     ?: return
 
-                val controller = activeMediaController
-
-                if (controller == null) {
+                if (activeMediaController == null) {
                     refreshMediaSession()
                 }
 
-                val currentController = activeMediaController
-                val controls = currentController?.transportControls
+                val controller = activeMediaController
+                val controls = controller?.transportControls
 
-                if (controls == null) {
+                if (controller == null || controls == null) {
                     Log.w(TAG, "No active Spotify media session")
                     return
                 }
@@ -240,10 +222,10 @@ class NanoNotificationListener : NotificationListenerService() {
                             controls.skipToPrevious()
 
                         "PLAYPAUSE" -> {
-                            val state =
-                                currentController.playbackState?.state
-
-                            if (state == PlaybackState.STATE_PLAYING) {
+                            if (
+                                controller.playbackState?.state ==
+                                PlaybackState.STATE_PLAYING
+                            ) {
                                 controls.pause()
                             } else {
                                 controls.play()
@@ -263,17 +245,6 @@ class NanoNotificationListener : NotificationListenerService() {
             }
         }
 
-    override fun onDestroy() {
-        try {
-            unregisterReceiver(mediaCommandReceiver)
-        } catch (_: Exception) {
-            // Receiver may already be unregistered.
-        }
-
-        activeMediaController = null
-        super.onDestroy()
-    }
-
     private fun sendToBleService(command: String) {
         val intent = Intent(
             NanoBleService.ACTION_SEND_COMMAND
@@ -285,5 +256,16 @@ class NanoNotificationListener : NotificationListenerService() {
             )
 
         sendBroadcast(intent)
+    }
+
+    override fun onDestroy() {
+        try {
+            unregisterReceiver(mediaCommandReceiver)
+        } catch (_: Exception) {
+            // Receiver might already be unregistered.
+        }
+
+        activeMediaController = null
+        super.onDestroy()
     }
 }
