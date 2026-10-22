@@ -23,15 +23,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      
       - name: Accept Android SDK licenses
         shell: bash
         run: |
+          set -o pipefail
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
           if [ -z "$SDKMANAGER" ]; then
-            echo "sdkmanager not found in Android SDK"
+            echo "sdkmanager not found"
             exit 1
           fi
-          yes | "$SDKMANAGER" --licenses
+          for i in {1..20}; do
+            echo y
+          done | "$SDKMANAGER" --licenses
+
 
       - name: Install Android SDK packages
         shell: bash
