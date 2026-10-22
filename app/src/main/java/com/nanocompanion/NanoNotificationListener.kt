@@ -1,4 +1,4 @@
-```kotlin
+
 package com.nanocompanion
 
 import android.content.ComponentName
@@ -287,4 +287,3 @@ class NanoNotificationListener : NotificationListenerService() {
         sendBroadcast(intent)
     }
 }
-```
