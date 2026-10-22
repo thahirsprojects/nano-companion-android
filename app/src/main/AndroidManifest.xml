@@ -1,4 +1,3 @@
-
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -6,7 +5,7 @@
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
-    <!-- Legacy Bluetooth permissions: Android 11 and earlier -->
+    <!-- Bluetooth permissions for Android 11 and below -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -15,15 +14,11 @@
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
-    <!-- Bluetooth permissions: Android 12+ -->
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
+    <!-- Bluetooth permissions for Android 12 and above -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_CONNECT" />
-
-    <!-- Location permissions for Android 11 and earlier -->
+    <!-- Location permissions for older Android versions -->
     <uses-permission
         android:name="android.permission.ACCESS_COARSE_LOCATION"
         android:maxSdkVersion="30" />
@@ -32,14 +27,9 @@
         android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
 
-    <!-- Notifications -->
-    <uses-permission
-        android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Foreground service permissions -->
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE" />
-
+    <!-- Notifications and foreground service -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
@@ -72,8 +62,7 @@
             android:exported="true">
 
             <intent-filter>
-                <action
-                    android:name="android.service.notification.NotificationListenerService" />
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
 
         </service>
