@@ -613,4 +613,4 @@ class NanoBleService : Service() {
 
         Log.i(TAG, "Nano BLE service destroyed")
     }
-}
+} 
