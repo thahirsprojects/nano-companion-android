@@ -1,3 +1,4 @@
+
 package com.nanocompanion
 
 import android.content.BroadcastReceiver
@@ -5,8 +6,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -16,26 +19,23 @@ class NanoNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val TAG = "NanoListener"
+        private const val SPOTIFY_PACKAGE = "com.spotify.music"
 
         const val ACTION_MEDIA_COMMAND =
             "com.nanocompanion.ACTION_MEDIA_COMMAND"
 
-        private const val ACTION_MEDIA_UPDATE =
-            "com.nanocompanion.ACTION_MEDIA_UPDATE"
-
         private const val EXTRA_MEDIA_COMMAND = "command"
-
-        private const val SPOTIFY_PACKAGE = "com.spotify.music"
     }
 
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
+    private var sessionListenerRegistered = false
 
     private val mediaCommandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ACTION_MEDIA_COMMAND) return
 
-            val command = intent.getStringExtra("command")
+            val command = intent.getStringExtra(EXTRA_MEDIA_COMMAND)
                 ?.trim()
                 ?.uppercase()
                 ?: return
@@ -75,49 +75,44 @@ class NanoNotificationListener : NotificationListenerService() {
         super.onListenerConnected()
 
         try {
-            val component = ComponentName(
-                this,
-                NanoNotificationListener::class.java
-            )
-
             val manager = mediaSessionManager
                 ?: getSystemService(Context.MEDIA_SESSION_SERVICE)
                     as MediaSessionManager
 
             mediaSessionManager = manager
 
-            // IMPORTANT: getActiveSessions belongs to MediaSessionManager.
+            val component = ComponentName(
+                this,
+                NanoNotificationListener::class.java
+            )
+
             val controllers: List<MediaController> =
                 manager.getActiveSessions(component).orEmpty()
 
             updateActiveController(controllers)
 
-            manager.addOnActiveSessionsChangedListener(
-                sessionListener,
-                component
-            )
+            if (!sessionListenerRegistered) {
+                manager.addOnActiveSessionsChangedListener(
+                    sessionListener,
+                    component
+                )
+                sessionListenerRegistered = true
+            }
 
-            Log.i(TAG, "Active media sessions monitoring started")
+            Log.i(TAG, "Media session monitoring started")
         } catch (e: SecurityException) {
             Log.e(
                 TAG,
-                "Notification access is required for media controls",
+                "Enable Nano in Android notification access settings",
                 e
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Unable to load active media sessions", e)
+            Log.e(TAG, "Unable to initialize media sessions", e)
         }
     }
 
     override fun onListenerDisconnected() {
-        try {
-            mediaSessionManager?.removeOnActiveSessionsChangedListener(
-                sessionListener
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not remove session listener", e)
-        }
-
+        removeSessionListener()
         activeController = null
         super.onListenerDisconnected()
     }
@@ -125,13 +120,11 @@ class NanoNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
 
-        // Media-session information is handled separately.
         if (sbn.packageName == SPOTIFY_PACKAGE) {
             refreshActiveSessions()
         }
 
-        val notification = sbn.notification
-        val extras = notification.extras
+        val extras = sbn.notification.extras
 
         val title = extras
             .getCharSequence("android.title")
@@ -167,6 +160,7 @@ class NanoNotificationListener : NotificationListenerService() {
 
         val safeApp = appName
             .replace("|", "/")
+            .replace("\r", " ")
             .replace("\n", " ")
             .take(40)
 
@@ -205,24 +199,25 @@ class NanoNotificationListener : NotificationListenerService() {
 
             updateActiveController(controllers)
         } catch (e: SecurityException) {
-            Log.w(TAG, "Media session access is unavailable", e)
+            Log.w(TAG, "Media session access unavailable", e)
         } catch (e: Exception) {
-            Log.e(TAG, "Could not refresh media sessions", e)
+            Log.e(TAG, "Unable to refresh media sessions", e)
         }
     }
 
     private fun updateActiveController(
         controllers: List<MediaController>
     ) {
+        val playingController = controllers.firstOrNull {
+            it.playbackState?.state == PlaybackState.STATE_PLAYING
+        }
+
         val spotifyController = controllers.firstOrNull {
             it.packageName == SPOTIFY_PACKAGE
         }
 
-        activeController = spotifyController
-            ?: controllers.firstOrNull {
-                it.playbackState?.state ==
-                    android.media.session.PlaybackState.STATE_PLAYING
-            }
+        activeController = playingController
+            ?: spotifyController
             ?: controllers.firstOrNull()
 
         publishMediaState(activeController)
@@ -235,23 +230,23 @@ class NanoNotificationListener : NotificationListenerService() {
         }
 
         val metadata = controller.metadata
+
+        // Use MediaMetadata constants, not MediaController.MetadataEditor.
         val title = metadata
-            ?.getString(MediaController.MetadataEditor.METADATA_KEY_TITLE)
+            ?.getString(MediaMetadata.METADATA_KEY_TITLE)
             .orEmpty()
 
         val artist = metadata
-            ?.getString(MediaController.MetadataEditor.METADATA_KEY_ARTIST)
+            ?.getString(MediaMetadata.METADATA_KEY_ARTIST)
             .orEmpty()
 
-        val state = when (
-            controller.playbackState?.state
-        ) {
-            android.media.session.PlaybackState.STATE_PLAYING -> "PLAYING"
+        val state = when (controller.playbackState?.state) {
+            PlaybackState.STATE_PLAYING -> "PLAYING"
 
-            android.media.session.PlaybackState.STATE_PAUSED,
-            android.media.session.PlaybackState.STATE_STOPPED,
-            android.media.session.PlaybackState.STATE_NONE,
-            android.media.session.PlaybackState.STATE_ERROR -> "PAUSED"
+            PlaybackState.STATE_PAUSED,
+            PlaybackState.STATE_STOPPED,
+            PlaybackState.STATE_NONE,
+            PlaybackState.STATE_ERROR -> "PAUSED"
 
             else -> "PAUSED"
         }
@@ -291,7 +286,7 @@ class NanoNotificationListener : NotificationListenerService() {
         val controller = activeController
 
         if (controller == null) {
-            Log.w(TAG, "No active media controller for command: $command")
+            Log.w(TAG, "No active media controller: $command")
             return
         }
 
@@ -300,18 +295,22 @@ class NanoNotificationListener : NotificationListenerService() {
         try {
             when (command) {
                 "NEXT" -> controls.skipToNext()
+
                 "PREV", "PREVIOUS" -> controls.skipToPrevious()
 
                 "PLAYPAUSE", "PLAY_PAUSE" -> {
-                    when (controller.playbackState?.state) {
-                        android.media.session.PlaybackState.STATE_PLAYING ->
-                            controls.pause()
-
-                        else -> controls.play()
+                    if (
+                        controller.playbackState?.state ==
+                        PlaybackState.STATE_PLAYING
+                    ) {
+                        controls.pause()
+                    } else {
+                        controls.play()
                     }
                 }
 
                 "PLAY" -> controls.play()
+
                 "PAUSE" -> controls.pause()
 
                 else -> Log.w(TAG, "Unknown media command: $command")
@@ -319,26 +318,31 @@ class NanoNotificationListener : NotificationListenerService() {
         } catch (e: SecurityException) {
             Log.e(TAG, "Media control permission error", e)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to execute media command: $command", e)
+            Log.e(TAG, "Media command failed: $command", e)
         }
-
-        // Refresh after the media player has had a chance to update.
-        publishMediaState(controller)
     }
 
-    override fun onDestroy() {
+    private fun removeSessionListener() {
+        if (!sessionListenerRegistered) return
+
         try {
             mediaSessionManager?.removeOnActiveSessionsChangedListener(
                 sessionListener
             )
-        } catch (_: Exception) {
-            // Service may already be disconnected.
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to remove media session listener", e)
         }
+
+        sessionListenerRegistered = false
+    }
+
+    override fun onDestroy() {
+        removeSessionListener()
 
         try {
             unregisterReceiver(mediaCommandReceiver)
-        } catch (_: Exception) {
-            // Receiver may already be unregistered.
+        } catch (e: Exception) {
+            Log.w(TAG, "Receiver was already unregistered", e)
         }
 
         activeController = null
