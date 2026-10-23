@@ -121,6 +121,9 @@ class NanoNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
 
+        NanoState.listenerConnected = true
+        NanoState.notifyChanged()
+
         try {
             val manager = mediaSessionManager ?: return
 
@@ -150,6 +153,10 @@ class NanoNotificationListener : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        NanoState.listenerConnected = false
+        NanoState.nowPlaying = ""
+        NanoState.notifyChanged()
+
         removeSessionListener()
         setActiveController(null)
         super.onListenerDisconnected()
@@ -337,6 +344,15 @@ class NanoNotificationListener : NotificationListenerService() {
     ) {
         val command = "M|${NanoText.clean(title, 100)}|" +
             "${NanoText.clean(artist, 100)}|$state"
+
+        val playing = if (state == "STOPPED") "" else
+            listOf(title, artist).filter { it.isNotBlank() }.joinToString(" – ") +
+                " (${state.lowercase()})"
+
+        if (playing != NanoState.nowPlaying) {
+            NanoState.nowPlaying = playing
+            NanoState.notifyChanged()
+        }
 
         // Players report many identical updates; only send real changes.
         if (command == lastMediaCommand) return

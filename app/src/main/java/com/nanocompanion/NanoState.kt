@@ -17,6 +17,16 @@ object NanoState {
     var detail: String = "Not connected"
         private set
 
+    // Diagnostics shown in the app.
+    @Volatile
+    var listenerConnected: Boolean = false
+
+    @Volatile
+    var nowPlaying: String = ""
+
+    @Volatile
+    var lastSent: String = ""
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
 

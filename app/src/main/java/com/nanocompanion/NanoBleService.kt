@@ -505,16 +505,18 @@ class NanoBleService : Service() {
             ch: BluetoothGattCharacteristic,
             status: Int
         ) {
+            val sent: ByteArray?
+
             synchronized(writeQueue) {
                 writing = false
-
-                if (writeQueue.isNotEmpty()) {
-                    writeQueue.removeFirst()
-                }
+                sent = writeQueue.pollFirst()
             }
 
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "BLE write failed: $status")
+            } else if (sent != null) {
+                NanoState.lastSent = sent.toString(Charsets.UTF_8).take(60)
+                NanoState.notifyChanged()
             }
 
             pumpWrites()

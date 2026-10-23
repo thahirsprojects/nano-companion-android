@@ -16,6 +16,18 @@ android {
         versionName = "1.0"
     }
 
+    // A fixed debug key: each CI run would otherwise sign with a new random
+    // key, so updates could not install over the previous build (and
+    // reinstalling revokes notification access).
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -79,6 +79,7 @@ class MainActivity : Activity() {
     private lateinit var notificationAccessValue: TextView
     private lateinit var mutedAppsValue: TextView
     private lateinit var batteryValue: TextView
+    private lateinit var diagnostics: TextView
     private val eyeChips = mutableListOf<TextView>()
 
     private var pendingActiveStart = 0
@@ -108,7 +109,22 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        rebindListenerIfNeeded()
         refresh()
+    }
+
+    // Samsung sometimes leaves the listener unbound after an app update even
+    // though access is granted; ask Android to bind it again.
+    private fun rebindListenerIfNeeded() {
+        if (!isNotificationAccessEnabled() || NanoState.listenerConnected) return
+
+        try {
+            android.service.notification.NotificationListenerService.requestRebind(
+                ComponentName(this, NanoNotificationListener::class.java)
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("NanoMain", "Listener rebind failed", e)
+        }
     }
 
     override fun onStop() {
@@ -186,6 +202,14 @@ class MainActivity : Activity() {
 
         column.addView(sectionLabel("Connection"))
         column.addView(connectionCard())
+
+        column.addView(sectionLabel("Diagnostics"))
+        column.addView(card().apply {
+            diagnostics = label("", 12f, colors.muted).apply {
+                typeface = Typeface.MONOSPACE
+            }
+            addView(diagnostics)
+        })
 
         column.addView(footer())
 
@@ -845,8 +869,28 @@ class MainActivity : Activity() {
         waterIntervalValue.text = "$pendingWaterMinutes min"
 
         val accessOn = isNotificationAccessEnabled()
-        notificationAccessValue.text = if (accessOn) "On" else "Turn on"
-        notificationAccessValue.setTextColor(if (accessOn) colors.good else colors.bad)
+        val listenerRunning = NanoState.listenerConnected
+
+        notificationAccessValue.text = when {
+            !accessOn -> "Turn on"
+            listenerRunning -> "On"
+            else -> "Not running"
+        }
+        notificationAccessValue.setTextColor(
+            when {
+                !accessOn -> colors.bad
+                listenerRunning -> colors.good
+                else -> colors.warn
+            }
+        )
+
+        diagnostics.text = listOf(
+            "Bluetooth:     ${link.name.lowercase()}",
+            "Notif access:  ${if (accessOn) "granted" else "NOT granted"}",
+            "Listener:      ${if (listenerRunning) "running" else "not running"}",
+            "Now playing:   ${NanoState.nowPlaying.ifBlank { "nothing detected" }}",
+            "Last sent:     ${NanoState.lastSent.ifBlank { "-" }}"
+        ).joinToString("\n")
 
         val muted = prefs.mutedApps.size
         mutedAppsValue.text = if (muted == 0) "None" else "$muted muted"
