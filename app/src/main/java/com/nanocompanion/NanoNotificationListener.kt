@@ -234,23 +234,20 @@ class NanoNotificationListener : NotificationListenerService() {
         if (lastForwarded[sbn.key] == combined) return
         lastForwarded[sbn.key] = combined
 
-        val message = when {
-            !prefs.hideContent -> combined
-            isCall -> "Incoming call"
-            else -> "New notification"
-        }
+        // Nano only shows who it is from (the notification title, e.g. the
+        // contact or chat name); the message text never leaves the phone.
+        // Private mode sends no sender, so Nano shows just the app.
+        val sender = if (prefs.hideContent) "" else title
 
         val safeApp = NanoText.clean(appName, 40).ifBlank { "App" }
-        val safeMessage = NanoText.clean(message, 220)
-
-        if (safeMessage.isBlank()) return
+        val safeSender = NanoText.clean(sender, 40)
 
         // R| makes Nano ring until tapped; Q| stops it when the call notification goes.
         if (isCall) {
             ringingCalls.add(sbn.key)
-            sendToNano("R|$safeApp|$safeMessage")
+            sendToNano("R|$safeApp|$safeSender")
         } else {
-            sendToNano("N|$safeApp|$safeMessage")
+            sendToNano("N|$safeApp|$safeSender")
         }
     }
 

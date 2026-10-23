@@ -350,7 +350,7 @@ class MainActivity : Activity() {
 
         grid.addView(tileRow(
             tile("🔔", "Test alert", "Show a sample notification") {
-                sendQuickCommand("N|Nano Companion|Hello from your phone!")
+                sendQuickCommand("N|Nano Companion|Your phone")
             },
             tile("💧", "Water break", "Play the drink-water animation") {
                 sendQuickCommand("W")
@@ -566,7 +566,7 @@ class MainActivity : Activity() {
 
         card.addView(switchRow(
             "Private mode",
-            "Show only the app, never the message text",
+            "Show only the app, not who sent it",
             prefs.hideContent
         ) { prefs.hideContent = it })
         card.addView(divider())
@@ -737,8 +737,8 @@ class MainActivity : Activity() {
         return label(
             "Everything stays between your phone and Nano over Bluetooth. " +
                 "There is no internet access, account or analytics. " +
-                "Notification text is shown on Nano's screen, so use Private mode " +
-                "if others can see it.",
+                "Nano shows who a notification is from, never the message. Use Private mode " +
+                "to show only the app name.",
             12f,
             colors.muted
         ).apply {
