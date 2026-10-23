@@ -20,6 +20,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.location.LocationManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -44,6 +45,14 @@ class MainActivity : Activity() {
         private const val REQUEST_PERMISSIONS = 401
         private const val REQUEST_ENABLE_BT = 402
         private const val WATER_STEP = 5
+
+        private const val DEVELOPER_GITHUB_ID = "thahirsprojects"
+        private const val DEVELOPER_GITHUB_URL = "https://github.com/thahirsprojects"
+        private const val APP_REPO_URL =
+            "https://github.com/thahirsprojects/nano-companion-android"
+        private const val FIRMWARE_REPO_URL = "https://github.com/thahirsprojects/nano"
+        private const val FIRMWARE_DOWNLOAD_URL =
+            "https://github.com/thahirsprojects/nano/raw/main/nano.ino"
 
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -80,6 +89,11 @@ class MainActivity : Activity() {
     private lateinit var mutedAppsValue: TextView
     private lateinit var batteryValue: TextView
     private lateinit var diagnostics: TextView
+    private val pages = mutableListOf<LinearLayout>()
+    private lateinit var testStatus: TextView
+    private lateinit var muteTileTitle: TextView
+    private lateinit var muteTileSubtitle: TextView
+    private val tabChips = mutableListOf<TextView>()
     private val eyeChips = mutableListOf<TextView>()
     private val volumeChips = mutableListOf<TextView>()
 
@@ -186,40 +200,378 @@ class MainActivity : Activity() {
         column.addView(header())
         column.addView(statusCard())
 
-        column.addView(sectionLabel("Quick actions"))
-        column.addView(quickActions())
+        val homePage = page()
+        val settingsPage = page()
+        val testPage = page()
+        val hardwarePage = page()
+        pages.addAll(listOf(homePage, settingsPage, testPage, hardwarePage))
 
-        column.addView(sectionLabel("Eye style"))
-        column.addView(eyeStyleCard())
+        column.addView(chipRow(listOf("Home", "Settings", "Test", "Hardware"), tabChips) { index ->
+            showPage(index)
+            scroller.scrollTo(0, 0)
+        }.apply {
+            layoutParams = params(top = 14)
+        })
 
-        column.addView(sectionLabel("Hydration"))
-        column.addView(hydrationCard())
+        // Home: everyday actions
+        homePage.addView(sectionLabel("Quick actions"))
+        homePage.addView(quickActions())
 
-        column.addView(sectionLabel("Nano settings"))
-        column.addView(settingsCard())
+        homePage.addView(sectionLabel("Eye style"))
+        homePage.addView(eyeStyleCard())
 
-        column.addView(sectionLabel("Notifications & music"))
-        column.addView(notificationsCard())
+        homePage.addView(sectionLabel("Hydration"))
+        homePage.addView(hydrationCard())
 
-        column.addView(sectionLabel("Sound"))
-        column.addView(soundCard())
+        // Settings: everything configurable, diagnostics and about
+        settingsPage.addView(sectionLabel("Nano settings"))
+        settingsPage.addView(settingsCard())
 
-        column.addView(sectionLabel("Connection"))
-        column.addView(connectionCard())
+        settingsPage.addView(sectionLabel("Notifications & music"))
+        settingsPage.addView(notificationsCard())
 
-        column.addView(sectionLabel("Diagnostics"))
-        column.addView(card().apply {
+        settingsPage.addView(sectionLabel("Sound"))
+        settingsPage.addView(soundCard())
+
+        settingsPage.addView(sectionLabel("Connection"))
+        settingsPage.addView(connectionCard())
+
+        settingsPage.addView(sectionLabel("Diagnostics"))
+        settingsPage.addView(card().apply {
             diagnostics = label("", 12f, colors.muted).apply {
                 typeface = Typeface.MONOSPACE
             }
             addView(diagnostics)
         })
 
-        column.addView(footer())
+        settingsPage.addView(sectionLabel("About"))
+        settingsPage.addView(aboutCard())
+        settingsPage.addView(footer())
+
+        buildTestPage(testPage)
+        buildHardwarePage(hardwarePage)
+
+        pages.forEach { column.addView(it) }
 
         scroller.addView(column)
         applyInsets(scroller, column)
         setContentView(scroller)
+        showPage(0)
+    }
+
+    private fun page(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        visibility = View.GONE
+    }
+
+    private fun showPage(index: Int) {
+        pages.forEachIndexed { i, page ->
+            page.visibility = if (i == index) View.VISIBLE else View.GONE
+        }
+        tabChips.forEachIndexed { i, chip -> styleChip(chip, selected = i == index) }
+    }
+
+    private fun openLink(url: String) {
+        tryStart(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    // ---------------------------------------------------------------
+    //  About (Settings page)
+    // ---------------------------------------------------------------
+
+    private fun aboutCard(): View {
+        val card = card()
+
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "-"
+        } catch (_: Exception) {
+            "-"
+        }
+
+        card.addView(label("Nano Companion", 18f, colors.text, bold = true))
+        card.addView(label("Version $version", 13f, colors.muted).apply {
+            layoutParams = params(top = 2)
+        })
+
+        card.addView(label("Developed by Mohamed Thahir", 15f, colors.text).apply {
+            layoutParams = params(top = 12)
+        })
+
+        card.addView(valueRow("GitHub", DEVELOPER_GITHUB_ID, valueLabel().apply { text = "Open" }) {
+            openLink(DEVELOPER_GITHUB_URL)
+        })
+        card.addView(divider())
+
+        card.addView(valueRow("App source code", "nano-companion-android", valueLabel().apply { text = "Open" }) {
+            openLink(APP_REPO_URL)
+        })
+        card.addView(divider())
+
+        card.addView(valueRow("Nano firmware", "nano.ino for the ESP32", valueLabel().apply { text = "Open" }) {
+            openLink(FIRMWARE_REPO_URL)
+        })
+
+        return card
+    }
+
+    // ---------------------------------------------------------------
+    //  Hardware page: diagram, components, wiring, firmware
+    // ---------------------------------------------------------------
+
+    private fun buildHardwarePage(page: LinearLayout) {
+        page.addView(sectionLabel("System diagram"))
+        page.addView(card().apply {
+            addView(SystemDiagramView(
+                this@MainActivity,
+                text = colors.text,
+                muted = colors.muted,
+                accent = colors.accent,
+                box = colors.surfaceAlt
+            ), LinearLayout.LayoutParams(MATCH, dp(420)))
+        })
+
+        page.addView(sectionLabel("Components needed"))
+        page.addView(card().apply {
+            listOf(
+                "ESP32 dev board" to "ESP32-WROOM-32 DevKit (any ESP32 with BLE)",
+                "OLED display" to "0.96\" SSD1306, 128×64, I2C (address 0x3C)",
+                "Touch sensor" to "TTP223 capacitive touch module",
+                "Buzzer" to "KC1206 passive buzzer (2 pins)",
+                "Resistor (recommended)" to "220 Ω in series with the buzzer, or an S8050/2N2222 transistor + 1 kΩ + 1N4148 diode for full volume",
+                "Wires" to "Jumper wires or a small breadboard",
+                "Power" to "USB cable + power bank or USB charger",
+                "Phone" to "Android 8.0 or newer with Bluetooth LE"
+            ).forEachIndexed { i, (name, detail) ->
+                if (i > 0) addView(divider())
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, dp(10), 0, dp(10))
+                    addView(label(name, 15f, colors.text, bold = true))
+                    addView(label(detail, 13f, colors.muted).apply {
+                        layoutParams = params(top = 2)
+                    })
+                })
+            }
+        })
+
+        page.addView(sectionLabel("Wiring"))
+        page.addView(card().apply {
+            addView(label(
+                listOf(
+                    "OLED     VCC → 3V3    GND → GND",
+                    "         SDA → P21    SCK → P22",
+                    "Touch    VCC → 3V3    GND → GND",
+                    "         SIG → P4",
+                    "Buzzer   +   → P25    −   → GND",
+                    "Power    USB → power bank / charger"
+                ).joinToString("\n"),
+                13f,
+                colors.text
+            ).apply {
+                typeface = Typeface.MONOSPACE
+            })
+            addView(label(
+                "All GND pins are connected inside the ESP32, so any GND works. " +
+                    "Without a resistor, keep BUZZER_DIRECT 1 in nano.ino; with one, set it to 0.",
+                12f,
+                colors.muted
+            ).apply {
+                layoutParams = params(top = 10)
+            })
+        })
+
+        page.addView(sectionLabel("Firmware (nano.ino)"))
+        page.addView(card().apply {
+            addView(label(
+                listOf(
+                    "1. Install the Arduino IDE.",
+                    "2. Boards Manager: install \"esp32 by Espressif Systems\".",
+                    "3. Library Manager: install \"Adafruit SSD1306\" and \"Adafruit GFX Library\".",
+                    "4. Download nano.ino below and open it in the Arduino IDE.",
+                    "5. Select board \"ESP32 Dev Module\" and the right port.",
+                    "6. Click Upload, then connect from the Home tab."
+                ).joinToString("\n"),
+                13f,
+                colors.text
+            ).apply {
+                setLineSpacing(dp(4).toFloat(), 1f)
+            })
+
+            addView(button("Download nano.ino", primary = true) {
+                openLink(FIRMWARE_DOWNLOAD_URL)
+            }.apply {
+                layoutParams = params(top = 14)
+            })
+
+            addView(button("Open firmware on GitHub", primary = false) {
+                openLink(FIRMWARE_REPO_URL)
+            }.apply {
+                layoutParams = params(top = 8)
+            })
+        })
+    }
+
+    // ---------------------------------------------------------------
+    //  Test page: one button per feature
+    // ---------------------------------------------------------------
+
+    private fun buildTestPage(page: LinearLayout) {
+        testStatus = label(
+            "Each button sends one command to Nano. Use \"Restore real settings\" when you're done.",
+            13f,
+            colors.muted
+        ).apply {
+            setPadding(dp(4), dp(16), dp(4), 0)
+        }
+        page.addView(testStatus)
+
+        testSection(page, "Notifications", listOf(
+            "WhatsApp" to "N|WhatsApp|Ahmed",
+            "Instagram" to "N|Instagram|Sara",
+            "Gmail" to "N|Gmail|Amazon",
+            "Messages" to "N|Messages|Mom",
+            "Telegram" to "N|Telegram|Ali",
+            "YouTube" to "N|YouTube|MrBeast",
+            "Facebook" to "N|Facebook|Ravi",
+            "Other app" to "N|Zomato|Order update",
+            "Long name" to "N|WhatsApp|Family Group: Mohammed Abdullah",
+            "Private mode" to "N|WhatsApp|"
+        ))
+
+        testSection(page, "Calls", listOf(
+            "Incoming call" to "R|Phone|Mom",
+            "WhatsApp call" to "R|WhatsApp|Ahmed",
+            "End call" to "Q"
+        ))
+
+        testSection(page, "Music", listOf(
+            "Playing" to "M|Blinding Lights|The Weeknd|PLAYING",
+            "Next song" to "M|Shape of You|Ed Sheeran|PLAYING",
+            "Paused" to "M|Shape of You|Ed Sheeran|PAUSED",
+            "Stopped" to "M|||STOPPED"
+        ))
+
+        testSection(page, "Screens", listOf(
+            "Water reminder" to "W",
+            "Find Nano" to "F",
+            "Sync time" to "TIME"
+        ))
+
+        testSection(
+            page,
+            "Eye style",
+            NanoPrefs.EYE_STYLES.mapIndexed { i, name -> name to "E|$i" }
+        )
+
+        testSection(page, "Sounds", listOf(
+            "Chirp" to "P|0", "Ring" to "P|1", "Water" to "P|2", "Find" to "P|3",
+            "Happy" to "P|4", "Click" to "P|5", "Startup" to "P|6", "Birthday" to "P|7"
+        ))
+
+        testSection(page, "Mute & Do Not Disturb", listOf(
+            "Mute 1 min" to "Z|1",
+            "Unmute" to "Z|0",
+            "DND on" to "D|1",
+            "DND off" to "D|0"
+        ))
+
+        testSection(page, "Phone battery (tap Nano for the clock)", listOf(
+            "78%" to "L|78|0",
+            "35% charging" to "L|35|1",
+            "Low battery alert" to "N|Battery|Phone 12%",
+            "Hide battery" to "L|-1|0"
+        ))
+
+        page.addView(
+            button("Restore real settings", primary = true) { restoreRealState() }.apply {
+                layoutParams = params(top = 20)
+            }
+        )
+    }
+
+    private fun testSection(
+        page: LinearLayout,
+        title: String,
+        tests: List<Pair<String, String>>
+    ) {
+        page.addView(sectionLabel(title))
+        val card = card()
+
+        tests.chunked(2).forEachIndexed { rowIndex, pair ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                if (rowIndex > 0) layoutParams = params(top = 8)
+            }
+
+            pair.forEachIndexed { i, (name, command) ->
+                row.addView(
+                    button(name, primary = false, compact = true) { runTest(name, command) },
+                    LinearLayout.LayoutParams(0, WRAP, 1f).apply {
+                        if (i > 0) marginStart = dp(8)
+                    }
+                )
+            }
+
+            // Keep a lone last button half width.
+            if (pair.size == 1) {
+                row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f).apply {
+                    marginStart = dp(8)
+                })
+            }
+
+            card.addView(row)
+        }
+
+        page.addView(card)
+    }
+
+    private fun runTest(name: String, command: String) {
+        val actual = if (command == "TIME") timeCommand() else command
+
+        if (NanoState.link != NanoState.Link.CONNECTED) {
+            testStatus.text = "Not connected. Connect to Nano first."
+            testStatus.setTextColor(colors.bad)
+            return
+        }
+
+        syncToNano(actual)
+        testStatus.text = "Sent \"$name\":  $actual"
+        testStatus.setTextColor(colors.good)
+    }
+
+    // Undo test commands: resend the real time, settings, sound, mute,
+    // battery, Do Not Disturb and music state.
+    private fun restoreRealState() {
+        if (NanoState.link != NanoState.Link.CONNECTED) {
+            toast("Connect to Nano first.")
+            return
+        }
+
+        listOf(
+            timeCommand(),
+            prefs.settingsCommand(),
+            prefs.eyeStyleCommand(),
+            prefs.soundCommand(),
+            prefs.muteCommand(),
+            batteryCommand(),
+            "Q"
+        ).forEach { syncToNano(it) }
+
+        requestMediaSync()
+        testStatus.text = "Real settings restored."
+        testStatus.setTextColor(colors.good)
+    }
+
+    private fun batteryCommand(): String {
+        if (!prefs.showBattery) return "L|-1|0"
+
+        val battery = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            ?: return "L|-1|0"
+
+        val percent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        if (percent !in 0..100) return "L|-1|0"
+
+        return "L|$percent|${if (battery.isCharging) 1 else 0}"
     }
 
     // Android 15 draws apps edge to edge; keep content clear of the
@@ -368,7 +720,63 @@ class MainActivity : Activity() {
             layoutParams = params(top = 10)
         })
 
+        val muteTile = tile("🔇", "Mute Nano", "Silence sounds for a while") {
+            if (prefs.isMuted) setMute(0L) else showMuteDialog()
+        } as LinearLayout
+        muteTileTitle = muteTile.getChildAt(1) as TextView
+        muteTileSubtitle = muteTile.getChildAt(2) as TextView
+
+        grid.addView(tileRow(
+            muteTile,
+            tile("📞", "Test call", "Ring Nano like an incoming call") {
+                sendQuickCommand("R|Phone|Test call")
+            }
+        ).apply {
+            layoutParams = params(top = 10)
+        })
+
         return grid
+    }
+
+    private fun showMuteDialog() {
+        val options = listOf(
+            "30 minutes" to 30L,
+            "1 hour" to 60L,
+            "8 hours" to 8 * 60L,
+            "Until 07:00" to minutesUntilMorning(),
+            "Until I unmute" to -1L
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Mute Nano")
+            .setItems(options.map { it.first }.toTypedArray<CharSequence>()) { _, which ->
+                val minutes = options[which].second
+                setMute(
+                    if (minutes < 0) Long.MAX_VALUE
+                    else System.currentTimeMillis() + minutes * 60_000L
+                )
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun minutesUntilMorning(): Long {
+        val now = java.util.Calendar.getInstance()
+        val morning = (now.clone() as java.util.Calendar).apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 7)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            if (!after(now)) add(java.util.Calendar.DAY_OF_MONTH, 1)
+        }
+        return (morning.timeInMillis - now.timeInMillis + 59_999L) / 60_000L
+    }
+
+    // 0 = unmute. Saved, so it is resent when Nano reconnects.
+    private fun setMute(untilMs: Long) {
+        prefs.muteUntil = untilMs
+        syncToNano(prefs.muteCommand())
+        toast(if (untilMs == 0L) "Nano unmuted" else "Nano muted")
+        refresh()
     }
 
     private fun eyeStyleCard(): View {
@@ -581,6 +989,16 @@ class MainActivity : Activity() {
         })
         card.addView(divider())
 
+        card.addView(switchRow(
+            "Phone battery on Nano",
+            "Show it on the clock screen and alert when it drops to 15%",
+            prefs.showBattery
+        ) {
+            prefs.showBattery = it
+            syncToNano(batteryCommand())
+        })
+        card.addView(divider())
+
         mutedAppsValue = valueLabel()
         card.addView(valueRow(
             "Muted apps",
@@ -601,6 +1019,16 @@ class MainActivity : Activity() {
         ) {
             prefs.soundOn = it
             syncSound()
+        })
+        card.addView(divider())
+
+        card.addView(switchRow(
+            "Follow Do Not Disturb",
+            "Keep Nano quiet while the phone is in Do Not Disturb",
+            prefs.followDnd
+        ) {
+            prefs.followDnd = it
+            requestMediaSync()                    // listener resends the DND state
         })
         card.addView(divider())
 
@@ -982,6 +1410,24 @@ class MainActivity : Activity() {
             styleChip(chip, selected = index == prefs.soundVolume)
         }
 
+        val muteUntil = prefs.muteUntil
+        if (prefs.isMuted) {
+            muteTileTitle.text = "Muted"
+            muteTileSubtitle.text = if (muteUntil == Long.MAX_VALUE) {
+                "Until you unmute • tap to unmute"
+            } else {
+                val time = java.text.DateFormat
+                    .getTimeInstance(java.text.DateFormat.SHORT)
+                    .format(java.util.Date(muteUntil))
+                "Until $time • tap to unmute"
+            }
+            muteTileTitle.setTextColor(colors.warn)
+        } else {
+            muteTileTitle.text = "Mute Nano"
+            muteTileSubtitle.text = "Silence sounds for a while"
+            muteTileTitle.setTextColor(colors.text)
+        }
+
         waterCount.text = prefs.waterToday.toString()
 
         activeStartValue.text = NanoPrefs.formatMinutes(pendingActiveStart)
@@ -1009,6 +1455,8 @@ class MainActivity : Activity() {
             "Notif access:  ${if (accessOn) "granted" else "NOT granted"}",
             "Listener:      ${if (listenerRunning) "running" else "not running"}",
             "Now playing:   ${NanoState.nowPlaying.ifBlank { "nothing detected" }}",
+            "Phone DND:     ${if (NanoState.phoneDnd) "on (Nano quiet)" else "off"}",
+            "Nano muted:    ${if (prefs.isMuted) "yes" else "no"}",
             "Last sent:     ${NanoState.lastSent.ifBlank { "-" }}"
         ).joinToString("\n")
 

@@ -28,6 +28,14 @@ class NanoPrefs(context: Context) {
         private const val KEY_SOUND_VOLUME = "sound_volume"
         private const val KEY_SOUND_FLAGS = "sound_flags"
 
+        private const val KEY_MUTE_UNTIL = "mute_until"
+        private const val KEY_FOLLOW_DND = "follow_dnd"
+        private const val KEY_SHOW_BATTERY = "show_battery"
+
+        // 24 days fits Nano's millis() comparison; used for "until I unmute"
+        // (resent on every connect, so it never runs out in practice).
+        const val MAX_MUTE_MINUTES = 60L * 24L * 24L
+
         private const val MAX_SEEN_APPS = 80
 
         // Sound flags, matching SF_* in the firmware.
@@ -111,6 +119,30 @@ class NanoPrefs(context: Context) {
     var soundFlags: Int
         get() = prefs.getInt(KEY_SOUND_FLAGS, SF_DEFAULT)
         set(value) = prefs.edit().putInt(KEY_SOUND_FLAGS, value).apply()
+
+    // Wall-clock time (ms) until which Nano is muted; Long.MAX_VALUE = until unmuted.
+    var muteUntil: Long
+        get() = prefs.getLong(KEY_MUTE_UNTIL, 0L)
+        set(value) = prefs.edit().putLong(KEY_MUTE_UNTIL, value).apply()
+
+    val isMuted: Boolean
+        get() = muteUntil > System.currentTimeMillis()
+
+    // Z|minutes for the time left (0 = not muted). "Until unmuted" is sent
+    // as a long mute; the app clears it when you unmute.
+    fun muteCommand(): String {
+        val left = muteUntil - System.currentTimeMillis()
+        val minutes = if (left <= 0) 0L else ((left + 59_999L) / 60_000L).coerceAtMost(MAX_MUTE_MINUTES)
+        return "Z|$minutes"
+    }
+
+    var followDnd: Boolean
+        get() = prefs.getBoolean(KEY_FOLLOW_DND, true)
+        set(value) = prefs.edit().putBoolean(KEY_FOLLOW_DND, value).apply()
+
+    var showBattery: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_BATTERY, true)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_BATTERY, value).apply()
 
     fun hasSound(flag: Int): Boolean = soundFlags and flag != 0
 

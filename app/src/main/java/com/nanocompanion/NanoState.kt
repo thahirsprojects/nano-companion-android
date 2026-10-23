@@ -27,6 +27,9 @@ object NanoState {
     @Volatile
     var lastSent: String = ""
 
+    @Volatile
+    var phoneDnd: Boolean = false
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
 

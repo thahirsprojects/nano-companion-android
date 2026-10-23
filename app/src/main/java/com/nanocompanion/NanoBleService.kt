@@ -25,6 +25,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
@@ -99,12 +100,59 @@ class NanoBleService : Service() {
         }
     }
 
-    // Keep Nano's clock right when the phone's time or timezone changes.
+    // Keep Nano's clock right when the phone's time or timezone changes,
+    // and its phone-battery reading current.
     private var timeReceiverRegistered = false
+
+    private var batteryPercent = -1
+    private var batteryCharging = false
+    private var lowBatteryAlerted = false
 
     private val timeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            enqueueCommand(timeCommand())
+            if (intent?.action == Intent.ACTION_BATTERY_CHANGED) {
+                onBatteryChanged(intent)
+            } else {
+                enqueueCommand(timeCommand())
+            }
+        }
+    }
+
+    private fun onBatteryChanged(intent: Intent) {
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        if (level < 0 || scale <= 0) return
+
+        val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val percent = level * 100 / scale
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+
+        // This broadcast also fires for voltage/temperature changes; only
+        // send when what Nano shows actually changes.
+        if (percent == batteryPercent && charging == batteryCharging) return
+        batteryPercent = percent
+        batteryCharging = charging
+
+        sendBattery()
+    }
+
+    // L|percent|charging for the clock screen, plus a one-time low battery alert.
+    private fun sendBattery() {
+        val prefs = NanoPrefs(this)
+
+        if (!prefs.showBattery || batteryPercent < 0) {
+            enqueueCommand("L|-1|0")
+            return
+        }
+
+        enqueueCommand("L|$batteryPercent|${if (batteryCharging) 1 else 0}")
+
+        if (batteryCharging || batteryPercent > 20) {
+            lowBatteryAlerted = false
+        } else if (batteryPercent <= 15 && !lowBatteryAlerted && characteristic != null) {
+            lowBatteryAlerted = true
+            enqueueCommand("N|Battery|Phone $batteryPercent%")
         }
     }
 
@@ -168,6 +216,7 @@ class NanoBleService : Service() {
             val timeFilter = IntentFilter().apply {
                 addAction(Intent.ACTION_TIME_CHANGED)
                 addAction(Intent.ACTION_TIMEZONE_CHANGED)
+                addAction(Intent.ACTION_BATTERY_CHANGED)
             }
 
             // These are protected system broadcasts only the system can send.
@@ -470,6 +519,8 @@ class NanoBleService : Service() {
             enqueueCommand(prefs.settingsCommand())
             enqueueCommand(prefs.eyeStyleCommand())
             enqueueCommand(prefs.soundCommand())
+            enqueueCommand(prefs.muteCommand())
+            mainHandler.post { sendBattery() }
 
             // Ask the notification listener to resend current media state.
             sendBroadcast(
@@ -825,7 +876,7 @@ class NanoBleService : Service() {
         return builder
             .setContentTitle("Nano Companion")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_stat_nano)
             .setContentIntent(openApp)
             .setOngoing(true)
             .build()

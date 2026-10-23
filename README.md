@@ -2,6 +2,8 @@
 
 Native Android Studio project for connecting a Samsung Android phone to the Nano ESP32 over BLE.
 
+Developed by **Mohamed Thahir** ([@thahirsprojects](https://github.com/thahirsprojects)). Firmware: [thahirsprojects/nano](https://github.com/thahirsprojects/nano) ([download nano.ino](https://github.com/thahirsprojects/nano/raw/main/nano.ino)).
+
 ## Features
 - Live connection status, one-tap connect/disconnect, light and dark theme.
 - Finds Nano by name or service UUID with a filtered scan, so it keeps working while the screen is off. Reconnects automatically after disconnects and, optionally, after the phone restarts.
@@ -13,6 +15,9 @@ Native Android Studio project for connecting a Samsung Android phone to the Nano
 - Hydration counter: tapping away Nano's DRINK WATER screen logs a glass.
 - Quick actions: test alert, water break, sync time, Find my Nano (`F`).
 - Buzzer sounds (passive buzzer on P25): sound on/off, volume, one switch per event (notifications, ringing calls, water, find, touch, startup, birthday), quiet outside awake hours, and previews.
+- Mute Nano (30 min, 1 h, 8 h, until 07:00, until unmuted) and follow the phone's Do Not Disturb.
+- Phone battery on Nano's clock screen, with a low-battery alert at 15%.
+- Four tabs: Home (quick actions, eye style, hydration), Settings (all options, diagnostics, About), Test (one button per feature, including calls) and Hardware (system diagram, components, wiring, firmware download).
 
 ## BLE protocol
 - Service: `7a1c0001-5e0d-4b8e-9f3a-2d6c1b4a0001`
@@ -29,6 +34,9 @@ Phone -> Nano (writes):
 - Incoming call (rings): `R|<app name>|<caller>`; stop ringing: `Q`
 - Sound settings: `B|<on 0/1>|<volume 0-2>|<flags>`. Flags: 1 notify, 2 call, 4 water, 8 find, 16 touch, 32 startup, 64 birthday, 128 quiet outside awake hours
 - Preview sound: `P|<id>`. Ids: 0 chirp, 1 ring, 2 water, 3 find, 4 happy, 5 click, 6 startup, 7 birthday
+- Mute for a while: `Z|<minutes>` (0 = unmute)
+- Phone Do Not Disturb: `D|0/1` (Nano stays quiet while on)
+- Phone battery on the clock screen: `L|<percent>|<charging 0/1>` (`L|-1|0` hides it)
 
 Nano -> phone (notifications on the same characteristic):
 - Media control: `C|NEXT`, `C|PREV`, `C|PLAYPAUSE`

@@ -56,6 +56,10 @@ class NanoNotificationListener : NotificationListenerService() {
     // Keys of incoming-call notifications Nano is currently ringing for.
     private val ringingCalls = mutableSetOf<String>()
 
+    private val labelCache = HashMap<String, String>()
+    private val rememberedApps = HashSet<String>()
+    private var lastDnd: Boolean? = null
+
     private val mediaCommandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ACTION_MEDIA_COMMAND) return
@@ -126,6 +130,7 @@ class NanoNotificationListener : NotificationListenerService() {
 
         NanoState.listenerConnected = true
         NanoState.notifyChanged()
+        publishDnd(force = true)
 
         try {
             val manager = mediaSessionManager ?: return
@@ -177,22 +182,31 @@ class NanoNotificationListener : NotificationListenerService() {
         if (extras.containsKey(Notification.EXTRA_MEDIA_SESSION)) return
         if (notification.category in SKIPPED_CATEGORIES) return
 
-        if (notification.category == Notification.CATEGORY_CALL) {
-            // Ringing: CallStyle "incoming" (Android 12+) or a full-screen call alert.
-            // Anything else is an ongoing call: stop Nano ringing, don't pop up.
-            val callType = extras.getInt("android.callType", 0)
-            val ringing = callType == 1 ||
-                (callType == 0 && notification.fullScreenIntent != null)
+        var isCall = false
 
-            if (!ringing) {
+        if (notification.category == Notification.CATEGORY_CALL) {
+            // Ringing: CallStyle "incoming" (Android 12+), a full-screen call
+            // alert, or (older Samsung dialers) an ongoing call notification
+            // without the in-call timer.
+            val callType = extras.getInt("android.callType", 0)
+            val showsTimer = extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false)
+            val ringing = callType == 1 || (
+                callType == 0 &&
+                    (notification.fullScreenIntent != null || (sbn.isOngoing && !showsTimer))
+                )
+
+            if (ringing) {
+                isCall = true
+            } else {
+                // Answered or ended: stop Nano ringing. A missed-call style
+                // notification (not ongoing) is shown like a normal one.
                 if (ringingCalls.remove(sbn.key)) sendToNano("Q")
-                return
+                lastForwarded.remove(sbn.key)
+                if (sbn.isOngoing) return
             }
         } else if (sbn.isOngoing) {
             return
         }
-
-        val isCall = notification.category == Notification.CATEGORY_CALL
 
         val title = extras
             .getCharSequence(Notification.EXTRA_TITLE)
@@ -219,14 +233,13 @@ class NanoNotificationListener : NotificationListenerService() {
 
         if (combined.isBlank()) return
 
-        val appName = try {
-            val appInfo = packageManager.getApplicationInfo(sbn.packageName, 0)
-            packageManager.getApplicationLabel(appInfo).toString()
-        } catch (_: Exception) {
-            sbn.packageName.substringAfterLast('.')
-        }
+        val appName = appLabel(sbn.packageName)
 
-        prefs.rememberApp(sbn.packageName, appName)
+        // Store each app once for the muted-apps list (avoids a prefs write
+        // on every notification).
+        if (rememberedApps.add(sbn.packageName)) {
+            prefs.rememberApp(sbn.packageName, appName)
+        }
 
         if (!prefs.forwardNotifications) return
         if (sbn.packageName in prefs.mutedApps) return
@@ -255,6 +268,40 @@ class NanoNotificationListener : NotificationListenerService() {
         lastForwarded.remove(sbn.key)
 
         if (ringingCalls.remove(sbn.key)) sendToNano("Q")
+    }
+
+    private fun appLabel(pkg: String): String = labelCache.getOrPut(pkg) {
+        try {
+            val appInfo = packageManager.getApplicationInfo(pkg, 0)
+            packageManager.getApplicationLabel(appInfo).toString()
+        } catch (_: Exception) {
+            pkg.substringAfterLast('.')
+        }
+    }
+
+    override fun onInterruptionFilterChanged(interruptionFilter: Int) {
+        super.onInterruptionFilterChanged(interruptionFilter)
+        publishDnd(force = false)
+    }
+
+    // D|1 keeps Nano quiet while the phone is in Do Not Disturb.
+    private fun publishDnd(force: Boolean) {
+        val filter = try {
+            currentInterruptionFilter
+        } catch (_: Exception) {
+            NotificationListenerService.INTERRUPTION_FILTER_UNKNOWN
+        }
+
+        val dnd = prefs.followDnd &&
+            filter != NotificationListenerService.INTERRUPTION_FILTER_ALL &&
+            filter != NotificationListenerService.INTERRUPTION_FILTER_UNKNOWN
+
+        if (!force && dnd == lastDnd) return
+        lastDnd = dnd
+
+        NanoState.phoneDnd = dnd
+        NanoState.notifyChanged()
+        sendToNano("D|${if (dnd) 1 else 0}")
     }
 
     private fun sendToNano(command: String) {
@@ -390,6 +437,7 @@ class NanoNotificationListener : NotificationListenerService() {
     private fun handleMediaCommand(command: String) {
         if (command == COMMAND_SYNC) {
             lastMediaCommand = null
+            publishDnd(force = true)
             refreshActiveSessions()
             return
         }
