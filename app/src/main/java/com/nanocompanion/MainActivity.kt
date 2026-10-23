@@ -53,6 +53,8 @@ class MainActivity : Activity() {
         private const val FIRMWARE_REPO_URL = "https://github.com/thahirsprojects/nano"
         private const val FIRMWARE_DOWNLOAD_URL =
             "https://github.com/thahirsprojects/nano/raw/main/nano.ino"
+        private const val CASE_URL =
+            "https://github.com/thahirsprojects/nano/tree/main/case"
 
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -339,7 +341,10 @@ class MainActivity : Activity() {
                 "Buzzer" to "KC1206 passive buzzer (2 pins)",
                 "Resistor (recommended)" to "220 Ω in series with the buzzer, or an S8050/2N2222 transistor + 1 kΩ + 1N4148 diode for full volume",
                 "Wires" to "Jumper wires or a small breadboard",
-                "Power" to "USB cable + power bank or USB charger",
+                "Battery" to "503035 LiPo, 3.7 V 500 mAh (30 × 35 × 5 mm), with protection",
+                "Charger" to "TP4056 USB-C board with protection (OUT+/OUT− pads)",
+                "Switch" to "SS12D00 mini slide switch (on/off)",
+                "Case" to "4 printed parts, 4 × M2×10 screws, 42 mm of 1.75 mm filament (hinge pin)",
                 "Phone" to "Android 8.0 or newer with Bluetooth LE"
             ).forEachIndexed { i, (name, detail) ->
                 if (i > 0) addView(divider())
@@ -363,7 +368,9 @@ class MainActivity : Activity() {
                     "Touch    VCC → 3V3    GND → GND",
                     "         SIG → P4",
                     "Buzzer   +   → P25    −   → GND",
-                    "Power    USB → power bank / charger"
+                    "Battery  +   → TP4056 B+   − → B−",
+                    "TP4056   OUT+ → switch → VIN",
+                    "         OUT− → GND"
                 ).joinToString("\n"),
                 13f,
                 colors.text
@@ -407,6 +414,24 @@ class MainActivity : Activity() {
                 openLink(FIRMWARE_REPO_URL)
             }.apply {
                 layoutParams = params(top = 8)
+            })
+        })
+
+        page.addView(sectionLabel("3D-printed case"))
+        page.addView(card().apply {
+            addView(label(
+                "Pocket case with a built-in battery and a fold-out kickstand: " +
+                    "59.6 × 45.6 × 30.6 mm. Four parts (shell, battery plate, lid, kickstand) " +
+                    "print without supports in PETG or PLA. You also need a 503035 LiPo, " +
+                    "a TP4056 USB-C charger, an SS12D00 switch and 4 × M2×10 screws.",
+                13f,
+                colors.text
+            ))
+
+            addView(button("Open case files & build guide", primary = true) {
+                openLink(CASE_URL)
+            }.apply {
+                layoutParams = params(top = 14)
             })
         })
     }

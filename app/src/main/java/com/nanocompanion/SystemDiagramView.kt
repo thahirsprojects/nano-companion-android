@@ -99,14 +99,14 @@ class SystemDiagramView(
         // Power (bottom)
         val powerTop = dp(358f)
         val power = RectF(cx - dp(90f), powerTop, cx + dp(90f), powerTop + dp(44f))
-        drawBox(canvas, power, "Power", "USB 5V • power bank / charger", highlight = false)
+        drawBox(canvas, power, "Battery", "LiPo 500 mAh + TP4056 USB-C", highlight = false)
 
         // Power runs up to the ESP32 behind the parts row (left edge path)
         val px = dp(2f) + sideW / 2f
         canvas.drawLine(power.left, power.centerY(), dp(2f), power.centerY(), linePaint)
         canvas.drawLine(dp(2f), power.centerY(), dp(2f), esp.centerY(), linePaint)
         canvas.drawLine(dp(2f), esp.centerY(), esp.left, esp.centerY(), linePaint)
-        canvas.drawText("USB", px, esp.centerY() - dp(6f), smallPaint)
+        canvas.drawText("VIN", px, esp.centerY() - dp(6f), smallPaint)
 
         // Shared supply note
         canvas.drawText(
