@@ -81,6 +81,7 @@ class MainActivity : Activity() {
     private lateinit var batteryValue: TextView
     private lateinit var diagnostics: TextView
     private val eyeChips = mutableListOf<TextView>()
+    private val volumeChips = mutableListOf<TextView>()
 
     private var pendingActiveStart = 0
     private var pendingActiveEnd = 0
@@ -199,6 +200,9 @@ class MainActivity : Activity() {
 
         column.addView(sectionLabel("Notifications & music"))
         column.addView(notificationsCard())
+
+        column.addView(sectionLabel("Sound"))
+        column.addView(soundCard())
 
         column.addView(sectionLabel("Connection"))
         column.addView(connectionCard())
@@ -587,6 +591,123 @@ class MainActivity : Activity() {
         return card
     }
 
+    private fun soundCard(): View {
+        val card = card()
+
+        card.addView(switchRow(
+            "Sounds",
+            "Beeps from Nano's buzzer. Always quiet 23:00–07:00, except Find my Nano.",
+            prefs.soundOn
+        ) {
+            prefs.soundOn = it
+            syncSound()
+        })
+        card.addView(divider())
+
+        card.addView(label("Volume", 15f, colors.text).apply {
+            layoutParams = params(top = 12)
+        })
+
+        card.addView(chipRow(NanoPrefs.VOLUMES, volumeChips) { index ->
+            prefs.soundVolume = index
+            refresh()
+            syncSound()
+            syncToNano("P|0")                     // let them hear the new volume
+        }.apply {
+            layoutParams = params(top = 8)
+        })
+
+        val events = listOf(
+            Triple("Notifications", "Short chirp for each notification", NanoPrefs.SF_NOTIFY),
+            Triple("Incoming calls", "Rings until you tap Nano or the call ends", NanoPrefs.SF_CALL),
+            Triple("Water reminder", "A little tune with DRINK WATER", NanoPrefs.SF_WATER),
+            Triple("Find my Nano", "Loud beeps while the screen flashes", NanoPrefs.SF_FIND),
+            Triple("Touch & petting", "Tiny click on taps, happy chirp when petted", NanoPrefs.SF_TOUCH),
+            Triple("Startup chime", "Plays when Nano turns on", NanoPrefs.SF_BOOT),
+            Triple("Birthday song", "Happy Birthday once on 26 Nov", NanoPrefs.SF_BIRTHDAY),
+            Triple("Quiet outside awake hours", "Only beep between Awake from and Wind down", NanoPrefs.SF_QUIET_OFF_HOURS)
+        )
+
+        events.forEach { (title, subtitle, flag) ->
+            card.addView(divider().apply {
+                layoutParams = LinearLayout.LayoutParams(MATCH, dp(1)).apply { topMargin = dp(12) }
+            })
+            card.addView(switchRow(title, subtitle, prefs.hasSound(flag)) {
+                prefs.setSound(flag, it)
+                syncSound()
+            })
+        }
+
+        card.addView(divider())
+        card.addView(label("Preview", 15f, colors.text).apply {
+            layoutParams = params(top = 12)
+        })
+
+        // Preview chips, four per row.
+        NanoPrefs.PREVIEW_SOUNDS.chunked(4).forEach { row ->
+            val chips = mutableListOf<TextView>()
+            card.addView(chipRow(row.map { it.first }, chips) { index ->
+                sendCommand("P|${row[index].second}")
+            }.apply {
+                layoutParams = params(top = 8)
+            })
+            chips.forEach { styleChip(it, selected = false) }
+        }
+
+        return card
+    }
+
+    private fun chipRow(
+        labels: List<String>,
+        into: MutableList<TextView>,
+        onClick: (Int) -> Unit
+    ): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        labels.forEachIndexed { index, name ->
+            val chip = label(name, 13f, colors.text, bold = true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(4), dp(10), dp(4), dp(10))
+                isClickable = true
+                layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f).apply {
+                    if (index > 0) marginStart = dp(6)
+                }
+                setOnClickListener { onClick(index) }
+            }
+
+            into.add(chip)
+            row.addView(chip)
+        }
+
+        return row
+    }
+
+    private fun styleChip(chip: TextView, selected: Boolean) {
+        chip.background = pressable(
+            if (selected) colors.accent else colors.surfaceAlt,
+            12
+        )
+        chip.setTextColor(if (selected) colors.onAccent else colors.text)
+    }
+
+    private fun syncSound() {
+        syncToNano(prefs.soundCommand())
+    }
+
+    // Sends quietly when connected; otherwise the saved value goes on next connect.
+    private fun syncToNano(command: String) {
+        if (NanoState.link != NanoState.Link.CONNECTED) return
+
+        sendBroadcast(
+            Intent(NanoBleService.ACTION_FORWARD_NOTIFICATION)
+                .setPackage(packageName)
+                .putExtra(NanoBleService.EXTRA_COMMAND, command),
+            NanoBleService.INTERNAL_PERMISSION
+        )
+    }
+
     private fun connectionCard(): View {
         val card = card()
 
@@ -854,12 +975,11 @@ class MainActivity : Activity() {
         styleButton(connectButton, primary = offline)
 
         eyeChips.forEachIndexed { index, chip ->
-            val selected = index == prefs.eyeStyle
-            chip.background = pressable(
-                if (selected) colors.accent else colors.surfaceAlt,
-                12
-            )
-            chip.setTextColor(if (selected) colors.onAccent else colors.text)
+            styleChip(chip, selected = index == prefs.eyeStyle)
+        }
+
+        volumeChips.forEachIndexed { index, chip ->
+            styleChip(chip, selected = index == prefs.soundVolume)
         }
 
         waterCount.text = prefs.waterToday.toString()

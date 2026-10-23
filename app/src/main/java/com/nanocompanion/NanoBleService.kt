@@ -469,6 +469,7 @@ class NanoBleService : Service() {
             enqueueCommand(timeCommand())
             enqueueCommand(prefs.settingsCommand())
             enqueueCommand(prefs.eyeStyleCommand())
+            enqueueCommand(prefs.soundCommand())
 
             // Ask the notification listener to resend current media state.
             sendBroadcast(

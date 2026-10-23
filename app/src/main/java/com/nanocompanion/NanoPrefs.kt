@@ -24,7 +24,31 @@ class NanoPrefs(context: Context) {
         private const val KEY_WATER_DAY = "water_day"
         private const val KEY_WATER_COUNT = "water_count"
 
+        private const val KEY_SOUND_ON = "sound_on"
+        private const val KEY_SOUND_VOLUME = "sound_volume"
+        private const val KEY_SOUND_FLAGS = "sound_flags"
+
         private const val MAX_SEEN_APPS = 80
+
+        // Sound flags, matching SF_* in the firmware.
+        const val SF_NOTIFY = 1
+        const val SF_CALL = 2
+        const val SF_WATER = 4
+        const val SF_FIND = 8
+        const val SF_TOUCH = 16
+        const val SF_BOOT = 32
+        const val SF_BIRTHDAY = 64
+        const val SF_QUIET_OFF_HOURS = 128
+        const val SF_DEFAULT =
+            SF_NOTIFY or SF_CALL or SF_WATER or SF_FIND or SF_TOUCH or SF_BOOT or SF_BIRTHDAY
+
+        val VOLUMES = listOf("Low", "Medium", "High")
+
+        // Sound ids for the P| preview command, matching the firmware's Sound enum.
+        val PREVIEW_SOUNDS = listOf(
+            "Chirp" to 0, "Ring" to 1, "Water" to 2, "Find" to 3,
+            "Happy" to 4, "Startup" to 6, "Birthday" to 7
+        )
 
         const val MAX_NAME_LENGTH = 8
         const val MIN_WATER_MINUTES = 5
@@ -75,6 +99,28 @@ class NanoPrefs(context: Context) {
     var startOnBoot: Boolean
         get() = prefs.getBoolean(KEY_START_ON_BOOT, false)
         set(value) = prefs.edit().putBoolean(KEY_START_ON_BOOT, value).apply()
+
+    var soundOn: Boolean
+        get() = prefs.getBoolean(KEY_SOUND_ON, true)
+        set(value) = prefs.edit().putBoolean(KEY_SOUND_ON, value).apply()
+
+    var soundVolume: Int
+        get() = prefs.getInt(KEY_SOUND_VOLUME, 1)
+        set(value) = prefs.edit().putInt(KEY_SOUND_VOLUME, value).apply()
+
+    var soundFlags: Int
+        get() = prefs.getInt(KEY_SOUND_FLAGS, SF_DEFAULT)
+        set(value) = prefs.edit().putInt(KEY_SOUND_FLAGS, value).apply()
+
+    fun hasSound(flag: Int): Boolean = soundFlags and flag != 0
+
+    fun setSound(flag: Int, enabled: Boolean) {
+        soundFlags = if (enabled) soundFlags or flag else soundFlags and flag.inv()
+    }
+
+    // B|on|volume 0-2|flags
+    fun soundCommand(): String =
+        "B|${if (soundOn) 1 else 0}|$soundVolume|$soundFlags"
 
     var mutedApps: Set<String>
         get() = prefs.getStringSet(KEY_MUTED_APPS, emptySet())?.toSet() ?: emptySet()

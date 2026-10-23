@@ -53,6 +53,9 @@ class NanoNotificationListener : NotificationListenerService() {
             size > MAX_TRACKED_NOTIFICATIONS
     }
 
+    // Keys of incoming-call notifications Nano is currently ringing for.
+    private val ringingCalls = mutableSetOf<String>()
+
     private val mediaCommandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ACTION_MEDIA_COMMAND) return
@@ -174,8 +177,22 @@ class NanoNotificationListener : NotificationListenerService() {
         if (extras.containsKey(Notification.EXTRA_MEDIA_SESSION)) return
         if (notification.category in SKIPPED_CATEGORIES) return
 
+        if (notification.category == Notification.CATEGORY_CALL) {
+            // Ringing: CallStyle "incoming" (Android 12+) or a full-screen call alert.
+            // Anything else is an ongoing call: stop Nano ringing, don't pop up.
+            val callType = extras.getInt("android.callType", 0)
+            val ringing = callType == 1 ||
+                (callType == 0 && notification.fullScreenIntent != null)
+
+            if (!ringing) {
+                if (ringingCalls.remove(sbn.key)) sendToNano("Q")
+                return
+            }
+        } else if (sbn.isOngoing) {
+            return
+        }
+
         val isCall = notification.category == Notification.CATEGORY_CALL
-        if (sbn.isOngoing && !isCall) return
 
         val title = extras
             .getCharSequence(Notification.EXTRA_TITLE)
@@ -217,18 +234,30 @@ class NanoNotificationListener : NotificationListenerService() {
         if (lastForwarded[sbn.key] == combined) return
         lastForwarded[sbn.key] = combined
 
-        val message = if (prefs.hideContent) "New notification" else combined
+        val message = when {
+            !prefs.hideContent -> combined
+            isCall -> "Incoming call"
+            else -> "New notification"
+        }
 
         val safeApp = NanoText.clean(appName, 40).ifBlank { "App" }
         val safeMessage = NanoText.clean(message, 220)
 
         if (safeMessage.isBlank()) return
 
-        sendToNano("N|$safeApp|$safeMessage")
+        // R| makes Nano ring until tapped; Q| stops it when the call notification goes.
+        if (isCall) {
+            ringingCalls.add(sbn.key)
+            sendToNano("R|$safeApp|$safeMessage")
+        } else {
+            sendToNano("N|$safeApp|$safeMessage")
+        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         lastForwarded.remove(sbn.key)
+
+        if (ringingCalls.remove(sbn.key)) sendToNano("Q")
     }
 
     private fun sendToNano(command: String) {

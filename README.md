@@ -12,6 +12,7 @@ Native Android Studio project for connecting a Samsung Android phone to the Nano
 - Eye style picker (`E|0-3`), kept in sync when you double-tap Nano.
 - Hydration counter: tapping away Nano's DRINK WATER screen logs a glass.
 - Quick actions: test alert, water break, sync time, Find my Nano (`F`).
+- Buzzer sounds (passive buzzer on P25): sound on/off, volume, one switch per event (notifications, ringing calls, water, find, touch, startup, birthday), quiet outside awake hours, and previews.
 
 ## BLE protocol
 - Service: `7a1c0001-5e0d-4b8e-9f3a-2d6c1b4a0001`
@@ -25,6 +26,9 @@ Phone -> Nano (writes):
 - Eye style: `E|<0-3>` (normal, happy, surprised, angry)
 - Water test: `W`
 - Find my Nano: `F`
+- Incoming call (rings): `R|<app name>|<caller>`; stop ringing: `Q`
+- Sound settings: `B|<on 0/1>|<volume 0-2>|<flags>`. Flags: 1 notify, 2 call, 4 water, 8 find, 16 touch, 32 startup, 64 birthday, 128 quiet outside awake hours
+- Preview sound: `P|<id>`. Ids: 0 chirp, 1 ring, 2 water, 3 find, 4 happy, 5 click, 6 startup, 7 birthday
 
 Nano -> phone (notifications on the same characteristic):
 - Media control: `C|NEXT`, `C|PREV`, `C|PLAYPAUSE`
