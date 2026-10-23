@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Nano" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#3D5AFE</item>
+        <item name="android:colorPrimary">#3D5AFE</item>
+        <item name="android:windowBackground">#F3F5FA</item>
+        <item name="android:statusBarColor">#F3F5FA</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

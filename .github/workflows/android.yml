@@ -44,8 +44,12 @@ jobs:
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
           "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
+      # The project has no Gradle wrapper; pin a version compatible with
+      # Android Gradle Plugin 8.9 instead of relying on the runner image.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
 
       - name: Build debug APK
         run: gradle assembleDebug
