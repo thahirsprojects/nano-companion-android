@@ -190,20 +190,29 @@ class NanoNotificationListener : NotificationListenerService() {
             // without the in-call timer.
             val callType = extras.getInt("android.callType", 0)
             val showsTimer = extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false)
-            val ringing = callType == 1 || (
-                callType == 0 &&
-                    (notification.fullScreenIntent != null || (sbn.isOngoing && !showsTimer))
+            // Answered: CallStyle "ongoing" (2) or an in-call timer. Checked first,
+            // because some in-call notifications keep their full-screen intent.
+            val answered = callType == 2 || showsTimer
+            val ringing = !answered && (
+                callType == 1 ||
+                    (callType == 0 && (notification.fullScreenIntent != null || sbn.isOngoing))
                 )
 
             if (ringing) {
                 isCall = true
-            } else {
-                // Answered or ended: stop Nano ringing. A missed-call style
-                // notification (not ongoing) is shown like a normal one.
+            } else if (answered) {
+                // Stop Nano ringing. (Declined / missed calls remove the
+                // notification, handled in onNotificationRemoved.)
                 if (ringingCalls.remove(sbn.key)) sendToNano("Q")
                 lastForwarded.remove(sbn.key)
-                if (sbn.isOngoing) return
+                return
+            } else if (sbn.key in ringingCalls) {
+                // An update that doesn't say ringing or answered: keep ringing.
+                return
+            } else if (sbn.isOngoing) {
+                return
             }
+            // Otherwise (e.g. a missed-call notice) it is shown like a normal one.
         } else if (sbn.isOngoing) {
             return
         }

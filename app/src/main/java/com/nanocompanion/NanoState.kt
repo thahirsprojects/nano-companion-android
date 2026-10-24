@@ -30,6 +30,9 @@ object NanoState {
     @Volatile
     var phoneDnd: Boolean = false
 
+    @Volatile
+    var callStateAccess: Boolean = false
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
 

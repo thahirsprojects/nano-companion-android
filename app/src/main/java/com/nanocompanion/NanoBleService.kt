@@ -1,6 +1,7 @@
 
 package com.nanocompanion
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -24,11 +25,16 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
+import android.os.SystemClock
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyManager
 import android.util.Log
 import java.util.ArrayDeque
 import java.util.UUID
@@ -108,6 +114,87 @@ class NanoBleService : Service() {
     private var batteryCharging = false
     private var lowBatteryAlerted = false
 
+    // Phone call state: Nano rings from RINGING until the call is answered
+    // (OFFHOOK) or declined/missed (IDLE). The notification listener adds the
+    // caller's name with its own R| command.
+    private var callStateRegistered = false
+    private var lastCallState = TelephonyManager.CALL_STATE_IDLE
+    private var lastRingCommandAt = 0L
+    private var callCallback: TelephonyCallback? = null
+    private var legacyCallListener: PhoneStateListener? = null
+
+    private fun registerCallState() {
+        if (callStateRegistered) return
+
+        val telephony = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager ?: return
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+ needs READ_PHONE_STATE for call state.
+                if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) return
+
+                val callback = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                    override fun onCallStateChanged(state: Int) = onCallState(state)
+                }
+                telephony.registerTelephonyCallback(mainExecutor, callback)
+                callCallback = callback
+            } else {
+                @Suppress("DEPRECATION")
+                val listener = object : PhoneStateListener() {
+                    @Deprecated("Replaced by TelephonyCallback on Android 12+")
+                    override fun onCallStateChanged(state: Int, phoneNumber: String?) =
+                        onCallState(state)
+                }
+                @Suppress("DEPRECATION")
+                telephony.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
+                legacyCallListener = listener
+            }
+
+            callStateRegistered = true
+            NanoState.callStateAccess = true
+            NanoState.notifyChanged()
+        } catch (e: Exception) {
+            Log.w(TAG, "Call state unavailable", e)
+        }
+    }
+
+    private fun unregisterCallState() {
+        val telephony = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager ?: return
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                callCallback?.let { telephony.unregisterTelephonyCallback(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                legacyCallListener?.let { telephony.listen(it, PhoneStateListener.LISTEN_NONE) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Call state unregister failed", e)
+        }
+
+        callCallback = null
+        legacyCallListener = null
+        callStateRegistered = false
+    }
+
+    private fun onCallState(state: Int) {
+        val previous = lastCallState
+        lastCallState = state
+
+        if (state == TelephonyManager.CALL_STATE_RINGING && previous != state) {
+            // Ring right away. Skip if the listener just sent R| with the caller's name.
+            val recent = SystemClock.elapsedRealtime() - lastRingCommandAt < 3000
+            if (!recent && NanoPrefs(this).forwardNotifications) {
+                enqueueCommand("R|Phone|Incoming call")
+            }
+        } else if (previous == TelephonyManager.CALL_STATE_RINGING) {
+            // Answered (OFFHOOK) or declined / missed (IDLE).
+            enqueueCommand("Q")
+        }
+    }
+
     private val timeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_BATTERY_CHANGED) {
@@ -167,6 +254,7 @@ class NanoBleService : Service() {
             Log.d(TAG, "Foreground service started")
 
             registerForwardingReceiver()
+            registerCallState()
         } catch (e: Exception) {
             Log.e(TAG, "Service initialization failed", e)
             stopSelf()
@@ -270,6 +358,7 @@ class NanoBleService : Service() {
 
             ACTION_CONNECT, null -> {
                 shouldReconnect = true
+                registerCallState()            // picks up a newly granted permission
                 beginScan()
             }
 
@@ -715,6 +804,8 @@ class NanoBleService : Service() {
     private fun enqueueCommand(command: String) {
         if (command.isBlank()) return
 
+        if (command.startsWith("R|")) lastRingCommandAt = SystemClock.elapsedRealtime()
+
         // Nothing is buffered while Nano is offline; time and media state
         // are resent on every connection.
         if (characteristic == null) {
@@ -924,6 +1015,7 @@ class NanoBleService : Service() {
 
         closeGatt()
 
+        unregisterCallState()
         mainHandler.removeCallbacksAndMessages(null)
         NanoState.update(NanoState.Link.OFFLINE, "Not connected")
 

@@ -39,6 +39,10 @@
         android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Call state (ringing / answered / ended) so Nano rings exactly as long as
+         the phone does. Only the state is read, never numbers or call logs. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <!-- Protects the app's internal broadcasts from other apps -->
     <permission
         android:name="com.nanocompanion.permission.INTERNAL"

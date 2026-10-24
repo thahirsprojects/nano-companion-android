@@ -15,6 +15,7 @@ Developed by **Mohamed Thahir** ([@thahirsprojects](https://github.com/thahirspr
 - Hydration counter: tapping away Nano's DRINK WATER screen logs a glass.
 - Quick actions: test alert, water break, sync time, Find my Nano (`F`).
 - Buzzer sounds (passive buzzer on P25): sound on/off, volume, one switch per event (notifications, ringing calls, water, find, touch, startup, birthday), quiet outside awake hours, and previews.
+- Ringtones for calls: Classic bell, Gran Vals (Nokia-style), Marimba (iPhone-style, original), Digital, Für Elise, Westminster chime, Arcade, Ode to Joy. Calls ring until answered or declined (uses the Phone permission for the call state on Android 12+).
 - Mute Nano (30 min, 1 h, 8 h, until 07:00, until unmuted) and follow the phone's Do Not Disturb.
 - Phone battery on Nano's clock screen, with a low-battery alert at 15%.
 - Four tabs: Home (quick actions, eye style, hydration), Settings (all options, diagnostics, About), Test (one button per feature, including calls) and Hardware (system diagram, components, wiring, firmware download).
@@ -31,9 +32,9 @@ Phone -> Nano (writes):
 - Eye style: `E|<0-3>` (normal, happy, surprised, angry)
 - Water test: `W`
 - Find my Nano: `F`
-- Incoming call (rings): `R|<app name>|<caller>`; stop ringing: `Q`
-- Sound settings: `B|<on 0/1>|<volume 0-2>|<flags>`. Flags: 1 notify, 2 call, 4 water, 8 find, 16 touch, 32 startup, 64 birthday, 128 quiet outside awake hours
-- Preview sound: `P|<id>`. Ids: 0 chirp, 1 ring, 2 water, 3 find, 4 happy, 5 click, 6 startup, 7 birthday
+- Incoming call: `R|<app name>|<caller>`. Nano rings (chosen ringtone) until `Q` (answered, declined or missed), a tap, a disconnect or 3 minutes. Sent from the phone's call state and from call notifications (WhatsApp etc.)
+- Sound settings: `B|<on 0/1>|<volume 0-2>|<flags>|<ringtone 0-7>`. Flags: 1 notify, 2 call, 4 water, 8 find, 16 touch, 32 startup, 64 birthday, 128 quiet outside awake hours
+- Preview sound: `P|<id>` (0 chirp, 1 current ringtone, 2 water, 3 find, 4 happy, 5 click, 6 startup, 7 birthday), `P|r<n>` previews ringtone n, `P|s` stops a preview
 - Mute for a while: `Z|<minutes>` (0 = unmute)
 - Phone Do Not Disturb: `D|0/1` (Nano stays quiet while on)
 - Phone battery on the clock screen: `L|<percent>|<charging 0/1>` (`L|-1|0` hides it)

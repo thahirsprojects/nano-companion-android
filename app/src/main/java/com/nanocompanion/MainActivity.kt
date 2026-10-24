@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_PERMISSIONS = 401
         private const val REQUEST_ENABLE_BT = 402
+        private const val REQUEST_PHONE = 403
         private const val WATER_STEP = 5
 
         private const val DEVELOPER_GITHUB_ID = "thahirsprojects"
@@ -90,6 +91,8 @@ class MainActivity : Activity() {
     private lateinit var notificationAccessValue: TextView
     private lateinit var mutedAppsValue: TextView
     private lateinit var batteryValue: TextView
+    private lateinit var ringtoneValue: TextView
+    private lateinit var callAlertsValue: TextView
     private lateinit var diagnostics: TextView
     private val pages = mutableListOf<LinearLayout>()
     private lateinit var testStatus: TextView
@@ -466,8 +469,14 @@ class MainActivity : Activity() {
         testSection(page, "Calls", listOf(
             "Incoming call" to "R|Phone|Mom",
             "WhatsApp call" to "R|WhatsApp|Ahmed",
-            "End call" to "Q"
+            "Answer / end call" to "Q"
         ))
+
+        testSection(
+            page,
+            "Ringtones (one loop each)",
+            NanoPrefs.RINGTONES.mapIndexed { i, name -> name to "P|r$i" } + ("Stop" to "P|s")
+        )
 
         testSection(page, "Music", listOf(
             "Playing" to "M|Blinding Lights|The Weeknd|PLAYING",
@@ -1070,9 +1079,28 @@ class MainActivity : Activity() {
             layoutParams = params(top = 8)
         })
 
+        card.addView(divider().apply {
+            layoutParams = LinearLayout.LayoutParams(MATCH, dp(1)).apply { topMargin = dp(12) }
+        })
+
+        ringtoneValue = valueLabel()
+        card.addView(valueRow(
+            "Ringtone",
+            "Plays on Nano for incoming calls until you answer or decline",
+            ringtoneValue
+        ) { showRingtoneDialog() })
+        card.addView(divider())
+
+        callAlertsValue = valueLabel()
+        card.addView(valueRow(
+            "Call ringing",
+            "Lets Nano follow the phone's call state (ringing, answered, ended)",
+            callAlertsValue
+        ) { requestCallStatePermission() })
+
         val events = listOf(
             Triple("Notifications", "Short chirp for each notification", NanoPrefs.SF_NOTIFY),
-            Triple("Incoming calls", "Rings until you tap Nano or the call ends", NanoPrefs.SF_CALL),
+            Triple("Incoming calls", "Rings until you answer, decline or tap Nano", NanoPrefs.SF_CALL),
             Triple("Water reminder", "A little tune with DRINK WATER", NanoPrefs.SF_WATER),
             Triple("Find my Nano", "Loud beeps while the screen flashes", NanoPrefs.SF_FIND),
             Triple("Touch & petting", "Tiny click on taps, happy chirp when petted", NanoPrefs.SF_TOUCH),
@@ -1145,13 +1173,33 @@ class MainActivity : Activity() {
         chip.setTextColor(if (selected) colors.onAccent else colors.text)
     }
 
+    private fun showRingtoneDialog() {
+        val names = NanoPrefs.RINGTONES.toTypedArray<CharSequence>()
+        var chosen = prefs.ringtone
+
+        AlertDialog.Builder(this)
+            .setTitle("Ringtone")
+            .setSingleChoiceItems(names, chosen) { _, which ->
+                chosen = which
+                // Preview on Nano without saving yet.
+                if (!syncToNano("P|r$which")) toast("Connect to Nano to hear it.")
+            }
+            .setPositiveButton("Use") { _, _ ->
+                prefs.ringtone = chosen
+                syncSound()
+                refresh()
+            }
+            .setNegativeButton("Cancel") { _, _ -> syncToNano("P|s") }   // stop the preview
+            .show()
+    }
+
     private fun syncSound() {
         syncToNano(prefs.soundCommand())
     }
 
     // Sends quietly when connected; otherwise the saved value goes on next connect.
-    private fun syncToNano(command: String) {
-        if (NanoState.link != NanoState.Link.CONNECTED) return
+    private fun syncToNano(command: String): Boolean {
+        if (NanoState.link != NanoState.Link.CONNECTED) return false
 
         sendBroadcast(
             Intent(NanoBleService.ACTION_FORWARD_NOTIFICATION)
@@ -1159,6 +1207,7 @@ class MainActivity : Activity() {
                 .putExtra(NanoBleService.EXTRA_COMMAND, command),
             NanoBleService.INTERNAL_PERMISSION
         )
+        return true
     }
 
     private fun connectionCard(): View {
@@ -1435,6 +1484,11 @@ class MainActivity : Activity() {
             styleChip(chip, selected = index == prefs.soundVolume)
         }
 
+        ringtoneValue.text = NanoPrefs.RINGTONES[prefs.ringtone]
+        val callStateOk = hasCallStatePermission()
+        callAlertsValue.text = if (callStateOk) "On" else "Allow"
+        callAlertsValue.setTextColor(if (callStateOk) colors.good else colors.bad)
+
         val muteUntil = prefs.muteUntil
         if (prefs.isMuted) {
             muteTileTitle.text = "Muted"
@@ -1482,6 +1536,13 @@ class MainActivity : Activity() {
             "Now playing:   ${NanoState.nowPlaying.ifBlank { "nothing detected" }}",
             "Phone DND:     ${if (NanoState.phoneDnd) "on (Nano quiet)" else "off"}",
             "Nano muted:    ${if (prefs.isMuted) "yes" else "no"}",
+            "Call state:    ${
+                when {
+                    NanoState.callStateAccess -> "tracking"
+                    hasCallStatePermission() -> "allowed (connect to start)"
+                    else -> "no permission"
+                }
+            }",
             "Last sent:     ${NanoState.lastSent.ifBlank { "-" }}"
         ).joinToString("\n")
 
@@ -1620,7 +1681,27 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
+
+            // Call state, so Nano rings until a call is answered or ended
+            // (optional: connecting still works without it).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(Manifest.permission.READ_PHONE_STATE)
+            }
         }.toTypedArray()
+
+    // Android 11 and below report the call state without a permission.
+    private fun hasCallStatePermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestCallStatePermission() {
+        if (hasCallStatePermission()) {
+            toast("Call alerts are already allowed.")
+            return
+        }
+        requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), REQUEST_PHONE)
+    }
 
     private fun ensurePermissionsThenConnect() {
         val missing = requiredPermissions.filter {
@@ -1640,6 +1721,21 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == REQUEST_PHONE) {
+            if (hasCallStatePermission() && NanoState.link != NanoState.Link.OFFLINE) {
+                // Let the running service start watching the call state.
+                try {
+                    startService(
+                        Intent(this, NanoBleService::class.java)
+                            .setAction(NanoBleService.ACTION_CONNECT)
+                    )
+                } catch (_: Exception) {
+                }
+            }
+            refresh()
+            return
+        }
 
         if (requestCode != REQUEST_PERMISSIONS) return
 

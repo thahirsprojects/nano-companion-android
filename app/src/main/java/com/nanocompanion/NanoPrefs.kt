@@ -27,6 +27,7 @@ class NanoPrefs(context: Context) {
         private const val KEY_SOUND_ON = "sound_on"
         private const val KEY_SOUND_VOLUME = "sound_volume"
         private const val KEY_SOUND_FLAGS = "sound_flags"
+        private const val KEY_RINGTONE = "ringtone"
 
         private const val KEY_MUTE_UNTIL = "mute_until"
         private const val KEY_FOLLOW_DND = "follow_dnd"
@@ -51,6 +52,18 @@ class NanoPrefs(context: Context) {
             SF_NOTIFY or SF_CALL or SF_WATER or SF_FIND or SF_TOUCH or SF_BOOT or SF_BIRTHDAY
 
         val VOLUMES = listOf("Low", "Medium", "High")
+
+        // Same order as RINGTONES in the firmware.
+        val RINGTONES = listOf(
+            "Classic bell",
+            "Gran Vals (Nokia-style)",
+            "Marimba (iPhone-style)",
+            "Digital (loudest)",
+            "Für Elise",
+            "Westminster chime",
+            "Arcade",
+            "Ode to Joy"
+        )
 
         // Sound ids for the P| preview command, matching the firmware's Sound enum.
         val PREVIEW_SOUNDS = listOf(
@@ -151,8 +164,13 @@ class NanoPrefs(context: Context) {
     }
 
     // B|on|volume 0-2|flags
+    var ringtone: Int
+        get() = prefs.getInt(KEY_RINGTONE, 0).coerceIn(0, RINGTONES.size - 1)
+        set(value) = prefs.edit().putInt(KEY_RINGTONE, value).apply()
+
+    // B|on|volume|flags|ringtone
     fun soundCommand(): String =
-        "B|${if (soundOn) 1 else 0}|$soundVolume|$soundFlags"
+        "B|${if (soundOn) 1 else 0}|$soundVolume|$soundFlags|$ringtone"
 
     var mutedApps: Set<String>
         get() = prefs.getStringSet(KEY_MUTED_APPS, emptySet())?.toSet() ?: emptySet()
