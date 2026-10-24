@@ -75,7 +75,9 @@ class NanoPrefs(context: Context) {
         const val MIN_WATER_MINUTES = 5
         const val MAX_WATER_MINUTES = 240
 
-        val EYE_STYLES = listOf("Normal", "Happy", "Surprised", "Angry")
+        // Same order as MOOD_ORDER in the firmware; Buddy is the 8-bit keychain-buddy face.
+        val EYE_STYLES = listOf("Normal", "Happy", "Wow", "Angry", "Buddy")
+        const val DEFAULT_EYE_STYLE = 4
 
         fun formatMinutes(minutes: Int): String =
             String.format(Locale.US, "%02d:%02d", minutes / 60, minutes % 60)
@@ -102,7 +104,7 @@ class NanoPrefs(context: Context) {
         set(value) = prefs.edit().putInt(KEY_WATER_MINUTES, value).apply()
 
     var eyeStyle: Int
-        get() = prefs.getInt(KEY_EYE_STYLE, 0)
+        get() = prefs.getInt(KEY_EYE_STYLE, DEFAULT_EYE_STYLE).coerceIn(0, EYE_STYLES.size - 1)
         set(value) = prefs.edit().putInt(KEY_EYE_STYLE, value).apply()
 
     var forwardNotifications: Boolean
